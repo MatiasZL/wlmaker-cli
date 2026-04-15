@@ -13,16 +13,13 @@ export async function createBloc(name: string, options: { dir: string; buildRunn
 
   // Validate name
   if (!name || name.trim().length === 0) {
-    console.error(chalk.red('Error: Name cannot be empty.'));
-    process.exit(1);
+    throw new Error('Name cannot be empty.');
   }
   if (!SNAKE_CASE_REGEX.test(name)) {
-    console.error(chalk.red('Error: Name must be snake_case (lowercase letters, digits, underscores).'));
-    process.exit(1);
+    throw new Error('Name must be snake_case (lowercase letters, digits, underscores).');
   }
   if (fs.existsSync(path.join(targetDir, name))) {
-    console.error(chalk.red(`Error: Directory "${name}" already exists.`));
-    process.exit(1);
+    throw new Error(`Directory "${name}" already exists.`);
   }
 
   const pascal = pascalCase(name);
@@ -50,7 +47,6 @@ export async function createBloc(name: string, options: { dir: string; buildRunn
       }
     }
   } catch (error) {
-    console.error(chalk.red(`Failed to create BLoC: ${error}`));
-    process.exit(1);
+    throw new Error(`Failed to create BLoC: ${error}`);
   }
 }
