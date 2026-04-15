@@ -199,19 +199,21 @@ async function blocFlow(project: ProjectInfo): Promise<void> {
 // Widget Flow
 // ============================================================
 
-async function widgetFlow(project: ProjectInfo): Promise<void> {
-  // Detect design system
-  const ds = detectDesignSystem(project.projectRoot);
+async function widgetFlow(): Promise<void> {
+  const projectRoot = process.cwd();
+
+  // Detect design system directly from cwd
+  const ds = detectDesignSystem(projectRoot);
   if (!ds) {
     clack.outro(
       chalk.red(
-        'No design system detected. Ensure wl_design_system/ directory exists.',
+        'No design system detected. Run this command from a project with wl_design_system/ directory.',
       ),
     );
     return;
   }
   clack.log.info(
-    `Design system: ${chalk.cyan(path.relative(project.projectRoot, ds.componentsDir))}`,
+    `Design system: ${chalk.cyan(path.relative(projectRoot, ds.componentsDir))}`,
   );
 
   // Name
@@ -270,16 +272,31 @@ async function widgetFlow(project: ProjectInfo): Promise<void> {
     selectedPattern = patternChoice as string;
   }
 
-  // Generate
+  // Generate widget
   const genSpinner = clack.spinner();
   genSpinner.start('Generating widget files...');
 
   try {
     await createWidget(name as string, tier, {
-      projectRoot: project.projectRoot,
+      projectRoot,
       pattern: selectedPattern,
     });
     genSpinner.stop('Widget generated');
+
+    // Auto-create use-case if widgetbook is available
+    if (ds.widgetbookDir) {
+      genSpinner.start('Creating widgetbook use-case...');
+      try {
+        await createUseCase(name as string, tier, {
+          projectRoot,
+          buildRunner: false,
+        });
+        genSpinner.stop('Use-case created');
+      } catch {
+        genSpinner.stop('Use-case skipped (may already exist)');
+      }
+    }
+
     clack.outro(chalk.green('Done!'));
   } catch (error) {
     genSpinner.stop('Failed');
@@ -403,19 +420,21 @@ export async function interactiveMode(): Promise<void> {
 
   const type = createType as CreateType;
 
-  // For widget/usecase we need the project first
-  const project = await resolveProject();
-  if (!project) return;
-
   switch (type) {
-    case 'bloc':
+    case 'bloc': {
+      const project = await resolveProject();
+      if (!project) return;
       await blocFlow(project);
       break;
+    }
     case 'widget':
-      await widgetFlow(project);
+      await widgetFlow();
       break;
-    case 'usecase':
+    case 'usecase': {
+      const project = await resolveProject();
+      if (!project) return;
       await useCaseFlow(project);
       break;
+    }
   }
 }

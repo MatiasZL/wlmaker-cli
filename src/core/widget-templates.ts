@@ -4,7 +4,8 @@
 
 /** Atom Pattern A: Single file, public constructor */
 export function atomTemplateA(name: string, pascal: string): string {
-  return `import 'package:flutter/material.dart';
+  return `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 class Wl${pascal} extends StatelessWidget {
   const Wl${pascal}({super.key});
@@ -20,7 +21,8 @@ class Wl${pascal} extends StatelessWidget {
 
 /** Atom Pattern B: Single file, private constructor + factories */
 export function atomTemplateB(name: string, pascal: string): string {
-  return `import 'package:flutter/material.dart';
+  return `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 enum Wl${pascal}Variant {
   primary,
@@ -53,7 +55,8 @@ export function atomTemplateC(
   pascal: string,
 ): { main: string; sizes: string } {
   return {
-    main: `import 'package:flutter/material.dart';
+    main: `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 part '${name}_sizes.dart';
 
@@ -104,7 +107,8 @@ extension _Wl${pascal}SizeExt on _Wl${pascal}Size {
 
 /** Molecule Pattern A: Single file StatefulWidget */
 export function moleculeTemplateA(name: string, pascal: string): string {
-  return `import 'package:flutter/material.dart';
+  return `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 enum Wl${pascal}Variant {
   primary,
@@ -139,7 +143,8 @@ export function moleculeTemplateB(
   pascal: string,
 ): { main: string; type: string } {
   return {
-    main: `import 'package:flutter/material.dart';
+    main: `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 part '${name}_type.dart';
 
@@ -179,7 +184,8 @@ extension Wl${pascal}VariantExt on Wl${pascal}Variant {
 
 /** Molecule Pattern C: Subdirectory with widgets/ and utils/ */
 export function moleculeTemplateC(name: string, pascal: string): string {
-  return `import 'package:flutter/material.dart';
+  return `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 class Wl${pascal} extends StatefulWidget {
   const Wl${pascal}({super.key});
@@ -208,7 +214,8 @@ export function organismTemplateA(
   pascal: string,
 ): { main: string; content: string } {
   return {
-    main: `import 'package:flutter/material.dart';
+    main: `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 part '${name}_content.dart';
 
@@ -240,7 +247,8 @@ class _Wl${pascal}Content extends StatelessWidget {
 
 /** Organism Pattern B: Single file simple */
 export function organismTemplateB(name: string, pascal: string): string {
-  return `import 'package:flutter/material.dart';
+  return `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 class Wl${pascal} extends StatefulWidget {
   const Wl${pascal}({super.key});
@@ -269,7 +277,8 @@ export function templateA(
   pascal: string,
 ): { main: string; i18n: string; body: string; skeleton: string } {
   return {
-    main: `import 'package:flutter/material.dart';
+    main: `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 part '${name}_i18n.dart';
 part '${name}_body.dart';
@@ -367,7 +376,8 @@ export function templateB(
   data: string;
 } {
   return {
-    main: `import 'package:flutter/material.dart';
+    main: `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 
 import 'contracts/${name}_callbacks.dart';
 import 'contracts/${name}_config.dart';
@@ -518,7 +528,8 @@ export function useCaseTemplate(
   pascal: string,
   tierPlural: string,
 ): string {
-  return `import 'package:widgetbook/widgetbook.dart';
+  return `import 'package:design_system/design_system.dart';
+import 'package:widgetbook/widgetbook.dart';
 import 'package:wl_design_system/${tierPlural}/wl_${name}.dart';
 
 WidgetbookUseCase wl${pascal}UseCase(BuildContext context) {
