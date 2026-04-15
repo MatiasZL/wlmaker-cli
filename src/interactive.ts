@@ -292,8 +292,8 @@ async function widgetFlow(): Promise<void> {
           buildRunner: false,
         });
         genSpinner.stop('Use-case created');
-      } catch {
-        genSpinner.stop('Use-case skipped (may already exist)');
+      } catch (e) {
+        genSpinner.stop(`Use-case skipped: ${e}`);
       }
     }
 
