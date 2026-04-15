@@ -10,11 +10,19 @@ import 'package:flutter/material.dart';
 class Wl${pascal} extends StatelessWidget {
   const Wl${pascal}({super.key});
 
+  static const skeleton = _Wl${pascal}SkeletonFactory();
+
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     return const SizedBox.shrink();
   }
+}
+
+class _Wl${pascal}SkeletonFactory {
+  const _Wl${pascal}SkeletonFactory();
+
+  Widget call({Key? key}) => const SizedBox.shrink();
 }
 `;
 }
@@ -40,72 +48,28 @@ class Wl${pascal} extends StatelessWidget {
   factory Wl${pascal}.secondary({Key? key}) =>
       Wl${pascal}._internal(variant: Wl${pascal}Variant.secondary, key: key);
 
+  static const skeleton = _Wl${pascal}SkeletonFactory();
+
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     return const SizedBox.shrink();
   }
 }
+
+class _Wl${pascal}SkeletonFactory {
+  const _Wl${pascal}SkeletonFactory();
+
+  Widget call({Key? key}) => const SizedBox.shrink();
+}
 `;
-}
-
-/** Atom Pattern C: Subdirectory with part files */
-export function atomTemplateC(
-  name: string,
-  pascal: string,
-): { main: string; sizes: string } {
-  return {
-    main: `import 'package:design_system/design_system.dart';
-import 'package:flutter/material.dart';
-
-part '${name}_sizes.dart';
-
-class Wl${pascal} extends StatelessWidget {
-  final Wl${pascal}Size size;
-
-  const Wl${pascal}({this.size = Wl${pascal}Size.md, super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.theme;
-    return SizedBox(
-      width: size.width,
-      height: size.height,
-      child: const SizedBox.shrink(),
-    );
-  }
-}
-`,
-    sizes: `part of '${name}.dart';
-
-enum _Wl${pascal}Size {
-  sm,
-  md,
-  lg,
-}
-
-extension _Wl${pascal}SizeExt on _Wl${pascal}Size {
-  double get width => switch (this) {
-        _Wl${pascal}Size.sm => 16,
-        _Wl${pascal}Size.md => 24,
-        _Wl${pascal}Size.lg => 32,
-      };
-
-  double get height => switch (this) {
-        _Wl${pascal}Size.sm => 16,
-        _Wl${pascal}Size.md => 24,
-        _Wl${pascal}Size.lg => 32,
-      };
-}
-`,
-  };
 }
 
 // ============================================================
 // Molecule Templates
 // ============================================================
 
-/** Molecule Pattern A: Single file StatefulWidget */
+/** Molecule Pattern A: Single file StatelessWidget */
 export function moleculeTemplateA(name: string, pascal: string): string {
   return `import 'package:design_system/design_system.dart';
 import 'package:flutter/material.dart';
@@ -115,7 +79,7 @@ enum Wl${pascal}Variant {
   secondary,
 }
 
-class Wl${pascal} extends StatefulWidget {
+class Wl${pascal} extends StatelessWidget {
   final Wl${pascal}Variant variant;
 
   const Wl${pascal}({
@@ -123,16 +87,19 @@ class Wl${pascal} extends StatefulWidget {
     super.key,
   });
 
-  @override
-  State<Wl${pascal}> createState() => _Wl${pascal}State();
-}
+  static const skeleton = _Wl${pascal}SkeletonFactory();
 
-class _Wl${pascal}State extends State<Wl${pascal}> {
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     return const SizedBox.shrink();
   }
+}
+
+class _Wl${pascal}SkeletonFactory {
+  const _Wl${pascal}SkeletonFactory();
+
+  Widget call({Key? key}) => const SizedBox.shrink();
 }
 `;
 }
@@ -148,7 +115,7 @@ import 'package:flutter/material.dart';
 
 part '${name}_type.dart';
 
-class Wl${pascal} extends StatefulWidget {
+class Wl${pascal} extends StatelessWidget {
   final Wl${pascal}Variant variant;
 
   const Wl${pascal}({
@@ -156,16 +123,19 @@ class Wl${pascal} extends StatefulWidget {
     super.key,
   });
 
-  @override
-  State<Wl${pascal}> createState() => _Wl${pascal}State();
-}
+  static const skeleton = _Wl${pascal}SkeletonFactory();
 
-class _Wl${pascal}State extends State<Wl${pascal}> {
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     return const SizedBox.shrink();
   }
+}
+
+class _Wl${pascal}SkeletonFactory {
+  const _Wl${pascal}SkeletonFactory();
+
+  Widget call({Key? key}) => const SizedBox.shrink();
 }
 `,
     type: `part of '${name}.dart';
@@ -187,19 +157,22 @@ export function moleculeTemplateC(name: string, pascal: string): string {
   return `import 'package:design_system/design_system.dart';
 import 'package:flutter/material.dart';
 
-class Wl${pascal} extends StatefulWidget {
+class Wl${pascal} extends StatelessWidget {
   const Wl${pascal}({super.key});
 
-  @override
-  State<Wl${pascal}> createState() => _Wl${pascal}State();
-}
+  static const skeleton = _Wl${pascal}SkeletonFactory();
 
-class _Wl${pascal}State extends State<Wl${pascal}> {
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     return const SizedBox.shrink();
   }
+}
+
+class _Wl${pascal}SkeletonFactory {
+  const _Wl${pascal}SkeletonFactory();
+
+  Widget call({Key? key}) => const SizedBox.shrink();
 }
 `;
 }
@@ -253,6 +226,8 @@ import 'package:flutter/material.dart';
 class Wl${pascal} extends StatefulWidget {
   const Wl${pascal}({super.key});
 
+  static const skeleton = _Wl${pascal}SkeletonFactory();
+
   @override
   State<Wl${pascal}> createState() => _Wl${pascal}State();
 }
@@ -263,6 +238,12 @@ class _Wl${pascal}State extends State<Wl${pascal}> {
     final theme = context.theme;
     return const SizedBox.shrink();
   }
+}
+
+class _Wl${pascal}SkeletonFactory {
+  const _Wl${pascal}SkeletonFactory();
+
+  Widget call({Key? key}) => const SizedBox.shrink();
 }
 `;
 }

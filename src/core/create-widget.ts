@@ -13,7 +13,6 @@ import { updateSortedBarrelFile } from './barrel.js';
 import {
   atomTemplateA,
   atomTemplateB,
-  atomTemplateC,
   moleculeTemplateA,
   moleculeTemplateB,
   moleculeTemplateC,
@@ -123,17 +122,6 @@ function createAtomFiles(
       fs.writeFileSync(
         path.join(tierDir, `${fileName}.dart`),
         atomTemplateB(name, pascal),
-      );
-      break;
-    }
-    case 'subdirectory-parts': {
-      const dir = path.join(tierDir, fileName);
-      fs.mkdirSync(dir, { recursive: true });
-      const tpl = atomTemplateC(name, pascal);
-      fs.writeFileSync(path.join(dir, `${fileName}.dart`), tpl.main);
-      fs.writeFileSync(
-        path.join(dir, `${fileName}_sizes.dart`),
-        tpl.sizes,
       );
       break;
     }

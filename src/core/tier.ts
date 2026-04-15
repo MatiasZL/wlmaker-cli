@@ -2,7 +2,7 @@ export const VALID_TIERS = ['atom', 'molecule', 'organism', 'template'] as const
 export type Tier = (typeof VALID_TIERS)[number];
 
 export const TIER_PATTERNS: Record<Tier, string[]> = {
-  atom: ['single-public', 'single-factory', 'subdirectory-parts'],
+  atom: ['single-public', 'single-factory'],
   molecule: ['single', 'subdirectory-parts', 'subdirectory-widgets'],
   organism: ['subdirectory-show', 'single'],
   template: ['simple', 'config-data-callbacks'],
@@ -26,7 +26,7 @@ const PATTERN_LABELS: Record<string, string> = {
   'single-public': 'Single file, public constructor',
   'single-factory': 'Single file, private constructor + factories',
   'subdirectory-parts': 'Subdirectory with part files',
-  single: 'Single file (StatefulWidget)',
+  single: 'Single file',
   'subdirectory-widgets': 'Subdirectory with widgets/ and utils/',
   'subdirectory-show': 'Subdirectory with static show() + parts',
   simple: 'Template simple (i18n + body + skeleton)',
