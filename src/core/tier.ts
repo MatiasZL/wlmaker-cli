@@ -28,7 +28,7 @@ const PATTERN_LABELS: Record<string, string> = {
   'subdirectory-parts': 'Subdirectory with part files',
   single: 'Single file',
   'subdirectory-widgets': 'Subdirectory with widgets/ and utils/',
-  'subdirectory-show': 'Subdirectory with static show() + parts',
+  'subdirectory-show': 'Subdirectory with factories + variant/i18n/skeleton parts',
   simple: 'Template simple (i18n + body + skeleton)',
   'config-data-callbacks': 'Template with Config/Data/Callbacks',
 };

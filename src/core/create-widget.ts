@@ -93,10 +93,16 @@ export async function createWidget(
 
   // Update barrel
   const barrelFileName = `${plural}.dart`;
+  const isSubdirectory =
+    (tier === 'molecule' && pattern === 'subdirectory-parts') ||
+    (tier === 'molecule' && pattern === 'subdirectory-widgets') ||
+    (tier === 'organism' && pattern === 'subdirectory-show');
   const exportLine =
     tier === 'template'
       ? `export '${cleanName}/wl_${cleanName}_template.dart';`
-      : `export '${fileName}.dart';`;
+      : isSubdirectory
+        ? `export '${fileName}/${fileName}.dart';`
+        : `export '${fileName}.dart';`;
 
   updateSortedBarrelFile(tierDir, barrelFileName, exportLine);
 
@@ -186,8 +192,13 @@ function createOrganismFiles(
       const tpl = organismTemplateA(name, pascal);
       fs.writeFileSync(path.join(dir, `${fileName}.dart`), tpl.main);
       fs.writeFileSync(
-        path.join(dir, `${fileName}_content.dart`),
-        tpl.content,
+        path.join(dir, `${fileName}_variant.dart`),
+        tpl.variant,
+      );
+      fs.writeFileSync(path.join(dir, `${fileName}_i18n.dart`), tpl.i18n);
+      fs.writeFileSync(
+        path.join(dir, `${fileName}_skeleton.dart`),
+        tpl.skeleton,
       );
       break;
     }

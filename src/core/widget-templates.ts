@@ -87,13 +87,13 @@ class Wl${pascal} extends StatelessWidget {
     super.key,
   });
 
-  static const skeleton = _Wl${pascal}SkeletonFactory();
-
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     return const SizedBox.shrink();
   }
+
+  static const skeleton = _Wl${pascal}SkeletonFactory();
 }
 
 class _Wl${pascal}SkeletonFactory {
@@ -113,7 +113,7 @@ export function moleculeTemplateB(
     main: `import 'package:design_system/design_system.dart';
 import 'package:flutter/material.dart';
 
-part '${name}_type.dart';
+part 'wl_${name}_type.dart';
 
 class Wl${pascal} extends StatelessWidget {
   final Wl${pascal}Variant variant;
@@ -123,13 +123,13 @@ class Wl${pascal} extends StatelessWidget {
     super.key,
   });
 
-  static const skeleton = _Wl${pascal}SkeletonFactory();
-
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     return const SizedBox.shrink();
   }
+
+  static const skeleton = _Wl${pascal}SkeletonFactory();
 }
 
 class _Wl${pascal}SkeletonFactory {
@@ -138,7 +138,7 @@ class _Wl${pascal}SkeletonFactory {
   Widget call({Key? key}) => const SizedBox.shrink();
 }
 `,
-    type: `part of '${name}.dart';
+    type: `part of 'wl_${name}.dart';
 
 enum Wl${pascal}Variant {
   primary,
@@ -160,13 +160,13 @@ import 'package:flutter/material.dart';
 class Wl${pascal} extends StatelessWidget {
   const Wl${pascal}({super.key});
 
-  static const skeleton = _Wl${pascal}SkeletonFactory();
-
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     return const SizedBox.shrink();
   }
+
+  static const skeleton = _Wl${pascal}SkeletonFactory();
 }
 
 class _Wl${pascal}SkeletonFactory {
@@ -181,37 +181,91 @@ class _Wl${pascal}SkeletonFactory {
 // Organism Templates
 // ============================================================
 
-/** Organism Pattern A: Subdirectory with static show() + parts */
+/** Organism Pattern A: Subdirectory with factories + variant/i18n/skeleton parts */
 export function organismTemplateA(
   name: string,
   pascal: string,
-): { main: string; content: string } {
+): { main: string; variant: string; i18n: string; skeleton: string } {
   return {
     main: `import 'package:design_system/design_system.dart';
 import 'package:flutter/material.dart';
 
-part '${name}_content.dart';
+part 'wl_${name}_variant.dart';
+part 'wl_${name}_i18n.dart';
+part 'wl_${name}_skeleton.dart';
 
-class Wl${pascal} {
-  Wl${pascal}._();
+class Wl${pascal} extends StatelessWidget {
+  final Wl${pascal}Variant variant;
+  final Wl${pascal}I18n i18n;
 
-  static Future<T?> show<T>({
-    required BuildContext context,
+  factory Wl${pascal}({
+    required Wl${pascal}I18n i18n,
+    Key? key,
   }) {
-    return showDialog<T>(
-      context: context,
-      builder: (context) => _Wl${pascal}Content(),
+    return Wl${pascal}._(
+      key: key,
+      variant: Wl${pascal}Variant.primary,
+      i18n: i18n,
     );
   }
-}
-`,
-    content: `part of '${name}.dart';
 
-class _Wl${pascal}Content extends StatelessWidget {
+  factory Wl${pascal}.secondary({
+    required Wl${pascal}I18n i18n,
+    Key? key,
+  }) {
+    return Wl${pascal}._(
+      key: key,
+      variant: Wl${pascal}Variant.secondary,
+      i18n: i18n,
+    );
+  }
+
+  const Wl${pascal}._({
+    required this.variant,
+    required this.i18n,
+    super.key,
+  });
+
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     return const SizedBox.shrink();
+  }
+}
+`,
+    variant: `part of 'wl_${name}.dart';
+
+enum Wl${pascal}Variant {
+  primary,
+  secondary,
+}
+`,
+    i18n: `part of 'wl_${name}.dart';
+
+class Wl${pascal}I18n {
+  const Wl${pascal}I18n({
+    this.title = '',
+    this.subtitle = '',
+  });
+
+  final String title;
+  final String subtitle;
+}
+`,
+    skeleton: `part of 'wl_${name}.dart';
+
+class Wl${pascal}Skeleton extends StatelessWidget {
+  const Wl${pascal}Skeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.theme;
+
+    return WlSkeleton(
+      width: double.infinity,
+      height: 120,
+      radius: theme.borderRadius.radiusL,
+    );
   }
 }
 `,
