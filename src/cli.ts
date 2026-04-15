@@ -1,14 +1,18 @@
+import { createRequire } from 'module';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { createBloc } from './core/create-bloc.js';
 import { interactiveMode } from './interactive.js';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
 
 const program = new Command();
 
 program
   .name('wlmaker')
   .description('Create Flutter BLoCs with Freezed sealed classes from the terminal')
-  .version('1.0.0');
+  .version(pkg.version);
 
 program
   .command('bloc')
