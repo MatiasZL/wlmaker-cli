@@ -529,14 +529,17 @@ export function useCaseTemplate(
   tierPlural: string,
 ): string {
   return `import 'package:design_system/design_system.dart';
+import 'package:flutter/material.dart';
 import 'package:widgetbook/widgetbook.dart';
-import 'package:wl_design_system/${tierPlural}/wl_${name}.dart';
+import 'package:widgetbook_annotation/widgetbook_annotation.dart' as widgetbook;
 
-WidgetbookUseCase wl${pascal}UseCase(BuildContext context) {
-  return WidgetbookUseCase(
-    name: 'Wl${pascal}',
-    builder: (context) => const Wl${pascal}(),
-  );
+@widgetbook.UseCase(
+  name: 'Wl${pascal}',
+  type: Wl${pascal},
+  path: 'wl_design_system/${tierPlural}/wl_${name}',
+)
+Widget useCaseWl${pascal}(BuildContext context) {
+  return const Wl${pascal}();
 }
 `;
 }
