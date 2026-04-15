@@ -1,26 +1,85 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as clack from '@clack/prompts';
 import chalk from 'chalk';
-import { analyzeProject, type ProjectInfo } from './core/project-analyzer.js';
+import {
+  analyzeProject,
+  findMonorepoRoot,
+  discoverPackages,
+  discoverProjects,
+  type ProjectInfo,
+} from './core/project-analyzer.js';
 import { createBloc } from './core/create-bloc.js';
 
 const SNAKE_CASE_REGEX = /^[a-z][a-z0-9_]*$/;
 
+async function resolveProject(): Promise<ProjectInfo | null> {
+  const s = clack.spinner();
+
+  // 1. Try current directory
+  s.start('Analyzing current directory...');
+  const cwdProject = analyzeProject(process.cwd());
+  if (cwdProject && (cwdProject.hasFreezed || cwdProject.hasBloc)) {
+    s.stop(`Found ${chalk.green(cwdProject.projectName)}`);
+    return cwdProject;
+  }
+
+  // 2. Try monorepo
+  s.message('Looking for Melos monorepo...');
+  const monorepoRoot = findMonorepoRoot(process.cwd());
+  if (monorepoRoot) {
+    const packages = discoverPackages(monorepoRoot);
+    if (packages.length > 0) {
+      s.stop(`Found monorepo with ${packages.length} feature package(s)`);
+      return selectPackage(packages);
+    }
+  }
+
+  // 3. Scan ~/Development
+  s.message('Scanning for Flutter projects...');
+  const homeDev = path.join(os.homedir(), 'Development');
+  if (fs.existsSync(homeDev)) {
+    const projects = discoverProjects(homeDev, 2);
+    if (projects.length > 0) {
+      s.stop(`Found ${projects.length} Flutter project(s)`);
+      return selectPackage(projects);
+    }
+  }
+
+  s.stop('No Flutter projects found');
+  clack.outro(chalk.red('Could not find any Flutter project with freezed or flutter_bloc.'));
+  return null;
+}
+
+async function selectPackage(projects: ProjectInfo[]): Promise<ProjectInfo | null> {
+  if (projects.length === 1) {
+    clack.log.info(`Using ${chalk.green(projects[0].projectName)}`);
+    return projects[0];
+  }
+
+  const selected = await clack.select({
+    message: 'Select a package',
+    options: projects.map((p) => ({
+      value: p,
+      label: p.projectName,
+      hint: path.relative(os.homedir(), p.projectRoot),
+    })),
+  });
+
+  if (clack.isCancel(selected)) {
+    clack.cancel('Cancelled');
+    return null;
+  }
+
+  return selected as ProjectInfo;
+}
+
 export async function interactiveMode(): Promise<void> {
   clack.intro(chalk.bgCyan(chalk.black(' wlmaker ')));
 
-  const s = clack.spinner();
-  s.start('Analyzing Flutter project...');
-
-  const project = analyzeProject(process.cwd());
-
-  if (!project) {
-    s.stop('No Flutter project found');
-    clack.outro(chalk.red('Could not find a pubspec.yaml in the current directory or any parent.'));
-    return;
-  }
-
-  s.stop(`Found ${chalk.green(project.projectName)} — ${project.features.length} feature(s) detected`);
+  const project = await resolveProject();
+  if (!project) return;
 
   // BLoC name
   const name = await clack.text({
