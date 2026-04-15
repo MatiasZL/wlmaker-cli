@@ -306,249 +306,54 @@ class _Wl${pascal}SkeletonFactory {
 // Template Templates
 // ============================================================
 
-/** Template Pattern A: Simple with i18n + body + skeleton */
+/** Template Pattern A: Simple with i18n + skeleton */
 export function templateA(
   name: string,
   pascal: string,
-): { main: string; i18n: string; body: string; skeleton: string } {
+): { main: string; i18n: string; skeleton: string } {
   return {
     main: `import 'package:design_system/design_system.dart';
 import 'package:flutter/material.dart';
 
-part '${name}_i18n.dart';
-part '${name}_body.dart';
-part '${name}_skeleton.dart';
+part 'wl_${name}_i18n.dart';
+part 'wl_${name}_skeleton.dart';
 
-class Wl${pascal}Template extends StatefulWidget {
-  const Wl${pascal}Template({super.key});
-
-  @override
-  State<Wl${pascal}Template> createState() => _Wl${pascal}TemplateState();
-}
-
-class _Wl${pascal}TemplateState extends State<Wl${pascal}Template> {
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    // TODO: Load data
-    setState(() => _isLoading = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(Wl${pascal}I18n.title)),
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        child: _isLoading
-            ? const _Wl${pascal}Skeleton()
-            : const _Wl${pascal}Body(),
-      ),
-    );
-  }
-}
-`,
-    i18n: `part of '${name}_template.dart';
-
-class Wl${pascal}I18n extends Equatable {
-  final String title;
-
-  const Wl${pascal}I18n({
-    this.title = '',
-  });
-
-  static const empty = Wl${pascal}I18n();
-
-  @override
-  List<Object?> get props => [title];
-}
-`,
-    body: `part of '${name}_template.dart';
-
-class _Wl${pascal}Body extends StatelessWidget {
-  const _Wl${pascal}Body();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.theme;
-    return const SizedBox.shrink();
-  }
-}
-`,
-    skeleton: `part of '${name}_template.dart';
-
-class _Wl${pascal}Skeleton extends StatelessWidget {
-  const _Wl${pascal}Skeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: CircularProgressIndicator(),
-    );
-  }
-}
-`,
-  };
-}
-
-/** Template Pattern B: With Config/Data/Callbacks */
-export function templateB(
-  name: string,
-  pascal: string,
-): {
-  main: string;
-  i18n: string;
-  body: string;
-  skeleton: string;
-  callbacks: string;
-  config: string;
-  data: string;
-} {
-  return {
-    main: `import 'package:design_system/design_system.dart';
-import 'package:flutter/material.dart';
-
-import 'contracts/${name}_callbacks.dart';
-import 'contracts/${name}_config.dart';
-import 'contracts/${name}_data.dart';
-
-part '${name}_i18n.dart';
-part '${name}_body.dart';
-part '${name}_skeleton.dart';
-
-class Wl${pascal}Template extends StatefulWidget {
-  final Wl${pascal}Config config;
-  final Wl${pascal}Callbacks callbacks;
-
+class Wl${pascal}Template extends StatelessWidget {
   const Wl${pascal}Template({
-    required this.config,
-    required this.callbacks,
+    required this.i18n,
+    this.isLoading = false,
     super.key,
   });
 
-  @override
-  State<Wl${pascal}Template> createState() => _Wl${pascal}TemplateState();
-}
-
-class _Wl${pascal}TemplateState extends State<Wl${pascal}Template> {
-  Wl${pascal}Data _data = const Wl${pascal}Data();
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    // TODO: Load data
-    setState(() => _isLoading = false);
-  }
+  final Wl${pascal}I18n i18n;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.config.i18n.title)),
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        child: _isLoading
-            ? const _Wl${pascal}Skeleton()
-            : _Wl${pascal}Body(
-                data: _data,
-                callbacks: widget.callbacks,
-              ),
-      ),
+      appBar: WlTopBar(title: i18n.title),
+      body: isLoading
+          ? const Wl${pascal}Skeleton()
+          : const SizedBox.shrink(),
     );
   }
 }
 `,
-    i18n: `part of '${name}_template.dart';
+    i18n: `part of 'wl_${name}_template.dart';
 
-class Wl${pascal}I18n extends Equatable {
+class Wl${pascal}I18n {
+  const Wl${pascal}I18n({this.title = ''});
   final String title;
-
-  const Wl${pascal}I18n({
-    this.title = '',
-  });
-
-  static const empty = Wl${pascal}I18n();
-
-  @override
-  List<Object?> get props => [title];
 }
 `,
-    body: `part of '${name}_template.dart';
+    skeleton: `part of 'wl_${name}_template.dart';
 
-class _Wl${pascal}Body extends StatelessWidget {
-  final Wl${pascal}Data data;
-  final Wl${pascal}Callbacks callbacks;
-
-  const _Wl${pascal}Body({
-    required this.data,
-    required this.callbacks,
-  });
-
+class Wl${pascal}Skeleton extends StatelessWidget {
+  const Wl${pascal}Skeleton({super.key});
   @override
   Widget build(BuildContext context) {
-    final theme = context.theme;
-    return const SizedBox.shrink();
+    return const WlSkeleton(width: double.infinity, height: 200);
   }
-}
-`,
-    skeleton: `part of '${name}_template.dart';
-
-class _Wl${pascal}Skeleton extends StatelessWidget {
-  const _Wl${pascal}Skeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: CircularProgressIndicator(),
-    );
-  }
-}
-`,
-    callbacks: `import 'package:flutter/material.dart';
-
-class Wl${pascal}Callbacks {
-  final VoidCallback onBack;
-  final VoidCallback onRetry;
-
-  const Wl${pascal}Callbacks({
-    required this.onBack,
-    required this.onRetry,
-  });
-}
-`,
-    config: `import 'package:flutter/material.dart';
-import '../${name}_template.dart';
-
-class Wl${pascal}Config extends Equatable {
-  final Wl${pascal}I18n i18n;
-  final bool showAppBar;
-
-  const Wl${pascal}Config({
-    this.i18n = Wl${pascal}I18n.empty,
-    this.showAppBar = true,
-  });
-
-  @override
-  List<Object?> get props => [i18n, showAppBar];
-}
-`,
-    data: `import 'package:flutter/material.dart';
-
-class Wl${pascal}Data extends Equatable {
-  const Wl${pascal}Data();
-
-  @override
-  List<Object?> get props => [];
 }
 `,
   };

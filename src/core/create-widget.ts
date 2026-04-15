@@ -19,7 +19,6 @@ import {
   organismTemplateA,
   organismTemplateB,
   templateA,
-  templateB,
 } from './widget-templates.js';
 
 const SNAKE_CASE_REGEX = /^[a-z][a-z0-9_]*$/;
@@ -225,57 +224,17 @@ function createTemplateFiles(
   const dir = path.join(tierDir, name);
   fs.mkdirSync(dir, { recursive: true });
 
-  switch (pattern) {
-    case 'simple': {
-      const tpl = templateA(name, pascal);
-      fs.writeFileSync(
-        path.join(dir, `wl_${name}_template.dart`),
-        tpl.main,
-      );
-      fs.writeFileSync(
-        path.join(dir, `wl_${name}_i18n.dart`),
-        tpl.i18n,
-      );
-      fs.writeFileSync(path.join(dir, `wl_${name}_body.dart`), tpl.body);
-      fs.writeFileSync(
-        path.join(dir, `wl_${name}_skeleton.dart`),
-        tpl.skeleton,
-      );
-      break;
-    }
-    case 'config-data-callbacks': {
-      const tpl = templateB(name, pascal);
-      fs.writeFileSync(
-        path.join(dir, `wl_${name}_template.dart`),
-        tpl.main,
-      );
-      fs.writeFileSync(
-        path.join(dir, `wl_${name}_i18n.dart`),
-        tpl.i18n,
-      );
-      fs.writeFileSync(path.join(dir, `wl_${name}_body.dart`), tpl.body);
-      fs.writeFileSync(
-        path.join(dir, `wl_${name}_skeleton.dart`),
-        tpl.skeleton,
-      );
-      // Contracts subdirectory
-      const contractsDir = path.join(dir, 'contracts');
-      fs.mkdirSync(contractsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(contractsDir, `wl_${name}_callbacks.dart`),
-        tpl.callbacks,
-      );
-      fs.writeFileSync(
-        path.join(contractsDir, `wl_${name}_config.dart`),
-        tpl.config,
-      );
-      fs.writeFileSync(
-        path.join(contractsDir, `wl_${name}_data.dart`),
-        tpl.data,
-      );
-      break;
-    }
-    default:
-      throw new Error(`Unknown template pattern: ${pattern}`);
-  }
+  const tpl = templateA(name, pascal);
+  fs.writeFileSync(
+    path.join(dir, `wl_${name}_template.dart`),
+    tpl.main,
+  );
+  fs.writeFileSync(
+    path.join(dir, `wl_${name}_i18n.dart`),
+    tpl.i18n,
+  );
+  fs.writeFileSync(
+    path.join(dir, `wl_${name}_skeleton.dart`),
+    tpl.skeleton,
+  );
 }

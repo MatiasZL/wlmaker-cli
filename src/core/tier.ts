@@ -5,7 +5,7 @@ export const TIER_PATTERNS: Record<Tier, string[]> = {
   atom: ['single-public', 'single-factory'],
   molecule: ['single', 'subdirectory-parts', 'subdirectory-widgets'],
   organism: ['subdirectory-show', 'single'],
-  template: ['simple', 'config-data-callbacks'],
+  template: ['simple'],
 };
 
 const TIER_PLURAL: Record<Tier, string> = {
@@ -29,8 +29,7 @@ const PATTERN_LABELS: Record<string, string> = {
   single: 'Single file',
   'subdirectory-widgets': 'Subdirectory with widgets/ and utils/',
   'subdirectory-show': 'Subdirectory with factories + variant/i18n/skeleton parts',
-  simple: 'Template simple (i18n + body + skeleton)',
-  'config-data-callbacks': 'Template with Config/Data/Callbacks',
+  simple: 'Template simple (i18n + skeleton)',
 };
 
 export function normalizeTier(input: string): Tier {
