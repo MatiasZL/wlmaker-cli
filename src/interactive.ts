@@ -131,6 +131,10 @@ export async function interactiveMode(): Promise<void> {
     } else {
       targetDir = path.join(project.projectRoot, 'lib', 'features', feature);
     }
+  } else if (fs.existsSync(path.join(project.projectRoot, 'lib', 'bloc'))) {
+    // Monorepo package: directo a lib/bloc/
+    targetDir = path.join(project.projectRoot, 'lib', 'bloc');
+    clack.log.info(`Target: ${chalk.cyan('lib/bloc/')}`);
   } else {
     clack.note('No lib/features/ directory found. Provide a target path manually.', 'Info');
     const customPath = await clack.text({
