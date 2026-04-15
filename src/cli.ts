@@ -61,6 +61,17 @@ program
           projectRoot: options.dir,
           pattern: options.pattern,
         });
+
+        // Auto-create use case
+        try {
+          await createUseCase(name, options.tier, {
+            projectRoot: options.dir,
+            buildRunner: false,
+          });
+          console.log(chalk.green('Widgetbook use-case created'));
+        } catch {
+          console.log(chalk.yellow('Use-case skipped (may already exist)'));
+        }
       } catch (error) {
         console.error(chalk.red(`Error: ${error}`));
         process.exit(1);

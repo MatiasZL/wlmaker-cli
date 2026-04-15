@@ -369,10 +369,12 @@ export function useCaseTemplate(
   tierPlural: string,
   tier: string,
 ): string {
-  const widgetCall =
-    tier === 'organism' || tier === 'template'
-      ? `const Wl${pascal}(i18n: Wl${pascal}I18n())`
-      : `const Wl${pascal}()`;
+  const isTemplate = tier === 'template';
+  const className = isTemplate ? `Wl${pascal}Template` : `Wl${pascal}`;
+  const needsI18n = tier === 'organism' || tier === 'template';
+  const widgetCall = needsI18n
+    ? `const ${className}(i18n: Wl${pascal}I18n())`
+    : `const ${className}()`;
 
   return `import 'package:design_system/design_system.dart';
 import 'package:flutter/material.dart';
@@ -380,11 +382,11 @@ import 'package:widgetbook/widgetbook.dart';
 import 'package:widgetbook_annotation/widgetbook_annotation.dart' as widgetbook;
 
 @widgetbook.UseCase(
-  name: 'Wl${pascal}',
-  type: Wl${pascal},
+  name: '${className}',
+  type: ${className},
   path: 'wl_design_system/${tierPlural}/wl_${name}',
 )
-Widget useCaseWl${pascal}(BuildContext context) {
+Widget useCase${className}(BuildContext context) {
   return ${widgetCall};
 }
 `;
