@@ -76,9 +76,15 @@ export function widgetExists(
   // Check flat file
   const flatFile = path.join(tierDir, `${widgetName}.dart`);
   if (fs.existsSync(flatFile)) return true;
-  // Check subdirectory
+  // Check subdirectory (wl_ prefixed)
   const subDir = path.join(tierDir, widgetName);
   if (fs.existsSync(subDir)) return true;
+  // Check subdirectory (without wl_ prefix, e.g. templates use bare name)
+  const bareName = widgetName.startsWith('wl_') ? widgetName.slice(3) : widgetName;
+  if (bareName !== widgetName) {
+    const bareSubDir = path.join(tierDir, bareName);
+    if (fs.existsSync(bareSubDir)) return true;
+  }
   return false;
 }
 
