@@ -11,8 +11,23 @@ import {
   type ProjectInfo,
 } from './core/project-analyzer.js';
 import { createBloc } from './core/create-bloc.js';
+import { createWidget } from './core/create-widget.js';
+import { createUseCase } from './core/create-usecase.js';
+import { detectDesignSystem } from './core/design-system-analyzer.js';
+import {
+  type Tier,
+  VALID_TIERS,
+  normalizeTier,
+  tierPlural,
+  tierLabel,
+  getValidPatterns,
+  getDefaultPattern,
+  patternLabel,
+} from './core/tier.js';
 
 const SNAKE_CASE_REGEX = /^[a-z][a-z0-9_]*$/;
+
+type CreateType = 'bloc' | 'widget' | 'usecase';
 
 async function resolveProject(): Promise<ProjectInfo | null> {
   const s = clack.spinner();
@@ -75,19 +90,18 @@ async function selectPackage(projects: ProjectInfo[]): Promise<ProjectInfo | nul
   return selected as ProjectInfo;
 }
 
-export async function interactiveMode(): Promise<void> {
-  clack.intro(chalk.bgCyan(chalk.black(' wlmaker ')));
+// ============================================================
+// BLoC Flow (existing)
+// ============================================================
 
-  const project = await resolveProject();
-  if (!project) return;
-
-  // BLoC name
+async function blocFlow(project: ProjectInfo): Promise<void> {
   const name = await clack.text({
     message: 'BLoC name (snake_case)',
     placeholder: 'e.g. user_login',
     validate: (value) => {
       if (!value.trim()) return 'Name is required';
-      if (!SNAKE_CASE_REGEX.test(value)) return 'Must be snake_case (lowercase, digits, underscores)';
+      if (!SNAKE_CASE_REGEX.test(value))
+        return 'Must be snake_case (lowercase, digits, underscores)';
     },
   });
 
@@ -96,7 +110,6 @@ export async function interactiveMode(): Promise<void> {
     return;
   }
 
-  // Select target directory
   let targetDir: string;
 
   if (project.features.length > 0) {
@@ -132,11 +145,13 @@ export async function interactiveMode(): Promise<void> {
       targetDir = path.join(project.projectRoot, 'lib', 'features', feature);
     }
   } else if (fs.existsSync(path.join(project.projectRoot, 'lib', 'bloc'))) {
-    // Monorepo package: directo a lib/bloc/
     targetDir = path.join(project.projectRoot, 'lib', 'bloc');
     clack.log.info(`Target: ${chalk.cyan('lib/bloc/')}`);
   } else {
-    clack.note('No lib/features/ directory found. Provide a target path manually.', 'Info');
+    clack.note(
+      'No lib/features/ directory found. Provide a target path manually.',
+      'Info',
+    );
     const customPath = await clack.text({
       message: 'Target directory path',
       placeholder: 'lib/features/auth',
@@ -153,7 +168,6 @@ export async function interactiveMode(): Promise<void> {
     targetDir = path.resolve(customPath);
   }
 
-  // Build runner
   const defaultRun = project.hasBuildRunner;
   const runBuildRunner = await clack.confirm({
     message: 'Run build_runner after generation?',
@@ -165,7 +179,6 @@ export async function interactiveMode(): Promise<void> {
     return;
   }
 
-  // Generate
   const genSpinner = clack.spinner();
   genSpinner.start('Generating BLoC files...');
 
@@ -179,5 +192,230 @@ export async function interactiveMode(): Promise<void> {
   } catch (error) {
     genSpinner.stop('Failed');
     clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+// ============================================================
+// Widget Flow
+// ============================================================
+
+async function widgetFlow(project: ProjectInfo): Promise<void> {
+  // Detect design system
+  const ds = detectDesignSystem(project.projectRoot);
+  if (!ds) {
+    clack.outro(
+      chalk.red(
+        'No design system detected. Ensure wl_design_system/ directory exists.',
+      ),
+    );
+    return;
+  }
+  clack.log.info(
+    `Design system: ${chalk.cyan(path.relative(project.projectRoot, ds.componentsDir))}`,
+  );
+
+  // Name
+  const name = await clack.text({
+    message: 'Widget name (snake_case, without wl_ prefix)',
+    placeholder: 'e.g. toggle, badge, snackbar',
+    validate: (value) => {
+      if (!value.trim()) return 'Name is required';
+      const clean = value.startsWith('wl_') ? value.slice(3) : value;
+      if (!SNAKE_CASE_REGEX.test(clean))
+        return 'Must be snake_case (lowercase, digits, underscores)';
+    },
+  });
+
+  if (clack.isCancel(name)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  // Tier
+  const allTiers = VALID_TIERS.map((t) => ({
+    value: t,
+    label: tierLabel(t),
+  }));
+
+  const selectedTier = await clack.select({
+    message: 'Select tier',
+    options: allTiers,
+  });
+
+  if (clack.isCancel(selectedTier)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const tier = selectedTier as Tier;
+
+  // Pattern
+  const patterns = getValidPatterns(tier);
+  let selectedPattern: string = getDefaultPattern(tier);
+
+  if (patterns.length > 1) {
+    const patternChoice = await clack.select({
+      message: 'Select pattern',
+      options: patterns.map((p) => ({
+        value: p,
+        label: patternLabel(p),
+      })),
+    });
+
+    if (clack.isCancel(patternChoice)) {
+      clack.cancel('Cancelled');
+      return;
+    }
+
+    selectedPattern = patternChoice as string;
+  }
+
+  // Generate
+  const genSpinner = clack.spinner();
+  genSpinner.start('Generating widget files...');
+
+  try {
+    await createWidget(name as string, tier, {
+      projectRoot: project.projectRoot,
+      pattern: selectedPattern,
+    });
+    genSpinner.stop('Widget generated');
+    clack.outro(chalk.green('Done!'));
+  } catch (error) {
+    genSpinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+// ============================================================
+// Use-Case Flow
+// ============================================================
+
+async function useCaseFlow(project: ProjectInfo): Promise<void> {
+  // Detect design system
+  const ds = detectDesignSystem(project.projectRoot);
+  if (!ds) {
+    clack.outro(
+      chalk.red(
+        'No design system detected. Ensure wl_design_system/ directory exists.',
+      ),
+    );
+    return;
+  }
+
+  if (!ds.widgetbookDir) {
+    clack.outro(
+      chalk.red(
+        'No widgetbook package detected. Ensure apps/widgetbook/ exists.',
+      ),
+    );
+    return;
+  }
+
+  // Name
+  const name = await clack.text({
+    message: 'Widget name for use-case (snake_case, without wl_ prefix)',
+    placeholder: 'e.g. toggle, badge',
+    validate: (value) => {
+      if (!value.trim()) return 'Name is required';
+      const clean = value.startsWith('wl_') ? value.slice(3) : value;
+      if (!SNAKE_CASE_REGEX.test(clean))
+        return 'Must be snake_case (lowercase, digits, underscores)';
+    },
+  });
+
+  if (clack.isCancel(name)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  // Tier
+  const allTiers = VALID_TIERS.map((t) => ({
+    value: t,
+    label: tierLabel(t),
+  }));
+
+  const selectedTier = await clack.select({
+    message: 'Select widget tier',
+    options: allTiers,
+  });
+
+  if (clack.isCancel(selectedTier)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const tier = selectedTier as Tier;
+
+  // Build runner
+  const runBuildRunner = await clack.confirm({
+    message: 'Run build_runner after generation?',
+    initialValue: true,
+  });
+
+  if (clack.isCancel(runBuildRunner)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  // Generate
+  const genSpinner = clack.spinner();
+  genSpinner.start('Generating use-case file...');
+
+  try {
+    await createUseCase(name as string, tier, {
+      projectRoot: project.projectRoot,
+      buildRunner: runBuildRunner as boolean,
+    });
+    genSpinner.stop('Use-case generated');
+    clack.outro(chalk.green('Done!'));
+  } catch (error) {
+    genSpinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+// ============================================================
+// Main Interactive Mode
+// ============================================================
+
+export async function interactiveMode(): Promise<void> {
+  clack.intro(chalk.bgCyan(chalk.black(' wlmaker ')));
+
+  // What do you want to create?
+  const createType = await clack.select({
+    message: 'What do you want to create?',
+    options: [
+      { value: 'bloc', label: 'BLoC', hint: 'State management' },
+      { value: 'widget', label: 'Widget', hint: 'Design system component' },
+      {
+        value: 'usecase',
+        label: 'Widgetbook Use-Case',
+        hint: 'Component showcase',
+      },
+    ],
+  });
+
+  if (clack.isCancel(createType)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const type = createType as CreateType;
+
+  // For widget/usecase we need the project first
+  const project = await resolveProject();
+  if (!project) return;
+
+  switch (type) {
+    case 'bloc':
+      await blocFlow(project);
+      break;
+    case 'widget':
+      await widgetFlow(project);
+      break;
+    case 'usecase':
+      await useCaseFlow(project);
+      break;
   }
 }
