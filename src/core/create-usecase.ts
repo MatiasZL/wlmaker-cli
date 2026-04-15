@@ -79,7 +79,7 @@ export async function createUseCase(
 
   fs.writeFileSync(
     useCasePath,
-    useCaseTemplate(cleanName, pascal, plural),
+    useCaseTemplate(cleanName, pascal, plural, tier),
   );
 
   console.log(

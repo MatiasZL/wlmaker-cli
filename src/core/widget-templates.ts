@@ -195,9 +195,6 @@ part 'wl_${name}_i18n.dart';
 part 'wl_${name}_skeleton.dart';
 
 class Wl${pascal} extends StatelessWidget {
-  final Wl${pascal}Variant variant;
-  final Wl${pascal}I18n i18n;
-
   factory Wl${pascal}({
     required Wl${pascal}I18n i18n,
     Key? key,
@@ -225,6 +222,9 @@ class Wl${pascal} extends StatelessWidget {
     required this.i18n,
     super.key,
   });
+
+  final Wl${pascal}Variant variant;
+  final Wl${pascal}I18n i18n;
 
   @override
   Widget build(BuildContext context) {
@@ -367,7 +367,13 @@ export function useCaseTemplate(
   name: string,
   pascal: string,
   tierPlural: string,
+  tier: string,
 ): string {
+  const widgetCall =
+    tier === 'organism' || tier === 'template'
+      ? `const Wl${pascal}(i18n: Wl${pascal}I18n())`
+      : `const Wl${pascal}()`;
+
   return `import 'package:design_system/design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:widgetbook/widgetbook.dart';
@@ -379,7 +385,7 @@ import 'package:widgetbook_annotation/widgetbook_annotation.dart' as widgetbook;
   path: 'wl_design_system/${tierPlural}/wl_${name}',
 )
 Widget useCaseWl${pascal}(BuildContext context) {
-  return const Wl${pascal}();
+  return ${widgetCall};
 }
 `;
 }
