@@ -103,6 +103,53 @@ ${params}
 `;
 }
 
+export function entityBoilerplate(pascal: string): string {
+  return `class ${pascal}Entity {
+  // TODO: Define fields
+
+  const ${pascal}Entity();
+}
+`;
+}
+
+export function modelBoilerplate(name: string, pascal: string): string {
+  return `import 'package:json_annotation/json_annotation.dart';
+import '../../domain/entities/${name}/${name}_entity.dart';
+
+part '${name}_model.g.dart';
+
+@JsonSerializable()
+class ${pascal}Model extends ${pascal}Entity {
+  const ${pascal}Model() : super();
+
+  factory ${pascal}Model.fromJson(Map<String, dynamic> json) =>
+      _\$${pascal}ModelFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _\$${pascal}ModelToJson(this);
+}
+`;
+}
+
+export function requestModelBoilerplate(name: string, pascal: string): string {
+  return `import 'package:json_annotation/json_annotation.dart';
+
+part '${name}_request_model.g.dart';
+
+@JsonSerializable()
+class ${pascal}RequestModel {
+  // TODO: Define fields
+
+  ${pascal}RequestModel();
+
+  factory ${pascal}RequestModel.fromJson(Map<String, dynamic> json) =>
+      _\$${pascal}RequestModelFromJson(json);
+
+  Map<String, dynamic> toJson() => _\$${pascal}RequestModelToJson(this);
+}
+`;
+}
+
 export function useCaseTemplate(
   name: string,
   pascal: string,
