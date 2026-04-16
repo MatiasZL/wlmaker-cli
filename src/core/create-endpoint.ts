@@ -16,6 +16,7 @@ import { injectMethod, injectImport, injectExport } from './dart-injector.js';
 
 export interface EndpointOptions {
   projectRoot: string;
+  projectName: string;
 
   // HTTP config
   httpMethod: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
@@ -54,15 +55,16 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
   const methodParams = buildMethodParams(options, pathParams, needsBody);
   const methodParamsForSignature = methodParams.map((p) => ({ name: p.name, type: p.type }));
 
-  // Response return type
-  const returnType = `${pascal}Entity`;
+  // Types
+  const modelType = `${pascal}Model`;
+  const entityType = `${pascal}Entity`;
   const repositoryInterfaceSnake = path.basename(repositoryInterfaceFile, '.dart');
 
   const spinner = (msg: string) => console.log(chalk.cyan(`  → ${msg}`));
 
   // 1. Generate Entity (boilerplate)
   spinner('Generating entity');
-  const entityDir = path.join(lib, 'domain', 'entities', feature, useCaseSnake);
+  const entityDir = path.join(lib, 'domain', 'entities', feature);
   fs.mkdirSync(entityDir, { recursive: true });
   fs.writeFileSync(
     path.join(entityDir, `${useCaseSnake}_entity.dart`),
@@ -71,17 +73,17 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
 
   // 2. Generate Model (boilerplate)
   spinner('Generating model');
-  const modelDir = path.join(lib, 'data', 'models', feature, useCaseSnake);
+  const modelDir = path.join(lib, 'data', 'models', feature);
   fs.mkdirSync(modelDir, { recursive: true });
   fs.writeFileSync(
     path.join(modelDir, `${useCaseSnake}_model.dart`),
-    modelBoilerplate(useCaseSnake, pascal),
+    modelBoilerplate(useCaseSnake, pascal, options.projectName),
   );
 
   // 3. Generate Request Model (boilerplate, if POST/PUT/PATCH)
   if (needsBody) {
     spinner('Generating request model');
-    const reqModelDir = path.join(lib, 'data', 'models', feature, useCaseSnake);
+    const reqModelDir = path.join(lib, 'data', 'models', feature);
     fs.mkdirSync(reqModelDir, { recursive: true });
     fs.writeFileSync(
       path.join(reqModelDir, `${useCaseSnake}_request_model.dart`),
@@ -94,30 +96,29 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
   const bffPath = path.resolve(options.bffApiFile);
   if (fs.existsSync(bffPath)) {
     const retrofitParams = buildRetrofitParams(options, pathParams, needsBody);
-    const retrofitReturnType = `${pascal}Model`;
     const method = retrofitMethod(
       camelCase(options.useCaseName),
       options.endpointPath,
       options.httpMethod,
       retrofitParams,
-      retrofitReturnType,
+      modelType,
     );
     injectMethod(bffPath, extractClassName(bffPath), method);
 
     // Inject model import
-    const modelImport = `import 'package:${feature}/data/models/${useCaseSnake}/${useCaseSnake}_model.dart';`;
+    const modelImport = `import 'package:${options.projectName}/data/models/${feature}/${useCaseSnake}_model.dart';`;
     injectImport(bffPath, modelImport);
   } else {
     console.log(chalk.yellow(`  ⚠ BFF API file not found: ${bffPath}`));
   }
 
-  // 5. Inject datasource method
+  // 5. Inject datasource method (returns Model)
   spinner('Injecting datasource method');
   const dsPath = path.resolve(datasourceFile);
   if (fs.existsSync(dsPath)) {
     const dsMethod = datasourceMethod(
       camelCase(options.useCaseName),
-      returnType,
+      modelType,
       methodParamsForSignature,
     );
     injectMethod(dsPath, datasourceClassName, dsMethod);
@@ -125,32 +126,33 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
     console.log(chalk.yellow(`  ⚠ Datasource file not found: ${dsPath}`));
   }
 
-  // 6. Inject repository interface method
+  // 6. Inject repository interface method (returns Entity)
   spinner('Injecting repository interface method');
   const repoIfacePath = path.resolve(repositoryInterfaceFile);
   if (fs.existsSync(repoIfacePath)) {
     const ifaceMethod = repositoryInterfaceMethod(
       camelCase(options.useCaseName),
-      returnType,
+      entityType,
       methodParamsForSignature,
     );
     injectMethod(repoIfacePath, repositoryInterfaceName, ifaceMethod);
 
     // Inject entity import
-    const entityImport = `import 'package:${feature}/domain/entities/${useCaseSnake}/${useCaseSnake}_entity.dart';`;
+    const entityImport = `import 'package:${options.projectName}/domain/entities/${feature}/${useCaseSnake}_entity.dart';`;
     injectImport(repoIfacePath, entityImport);
   } else {
     console.log(chalk.yellow(`  ⚠ Repository interface not found: ${repoIfacePath}`));
   }
 
-  // 7. Inject repository implementation method
+  // 7. Inject repository implementation method (converts Model → Entity)
   spinner('Injecting repository implementation method');
   const repoImplPath = path.resolve(repositoryImplFile);
   if (fs.existsSync(repoImplPath)) {
     const dsVarName = camelCase(datasourceClassName);
     const implMethod = repositoryImplMethod(
       camelCase(options.useCaseName),
-      returnType,
+      entityType,
+      modelType,
       methodParamsForSignature,
       dsVarName,
     );
@@ -170,16 +172,43 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
       useCasePascal,
       camelCase(options.useCaseName),
       methodParamsForSignature,
-      returnType,
+      entityType,
       repositoryInterfaceSnake,
     ),
   );
 
-  // 9. Update barrel file
-  spinner('Updating barrel file');
-  const barrelPath = path.join(useCaseDir, 'usecases.dart');
-  const exportLine = `export '${useCaseSnake}_usecase.dart';`;
-  injectExport(barrelPath, exportLine);
+  // 9. Update barrel files
+  spinner('Updating barrel files');
+
+  // Entity barrel: entities/{feature}/{feature}.dart
+  const entityBarrel = path.join(lib, 'domain', 'entities', feature, `${feature}.dart`);
+  injectExport(entityBarrel, `export '${useCaseSnake}_entity.dart';`);
+  // Top-level entities barrel
+  injectExport(
+    path.join(lib, 'domain', 'entities', 'entities.dart'),
+    `export '${feature}/${feature}.dart';`,
+  );
+
+  // Model barrel: models/{feature}/{feature}.dart
+  const modelBarrel = path.join(lib, 'data', 'models', feature, `${feature}.dart`);
+  injectExport(modelBarrel, `export '${useCaseSnake}_model.dart';`);
+  if (needsBody) {
+    injectExport(modelBarrel, `export '${useCaseSnake}_request_model.dart';`);
+  }
+  // Top-level models barrel
+  injectExport(
+    path.join(lib, 'data', 'models', 'models.dart'),
+    `export '${feature}/${feature}.dart';`,
+  );
+
+  // UseCase barrel: usecases/{feature}/{feature}.dart
+  const useCaseBarrel = path.join(useCaseDir, `${feature}.dart`);
+  injectExport(useCaseBarrel, `export '${useCaseSnake}_usecase.dart';`);
+  // Top-level usecases barrel
+  injectExport(
+    path.join(lib, 'domain', 'usecases', 'usecases.dart'),
+    `export '${feature}/${feature}.dart';`,
+  );
 
   console.log(chalk.green(`\n✓ Endpoint "${options.useCaseName}" generated successfully.`));
 }
@@ -188,7 +217,6 @@ function extractDomain(bffApiFile: string): string {
   const baseName = path.basename(bffApiFile);
   const match = baseName.match(/^bff_(.+)_api\.dart$/);
   if (match) return match[1];
-  // Fallback: use the file name without extension
   return baseName.replace(/\.dart$/, '');
 }
 

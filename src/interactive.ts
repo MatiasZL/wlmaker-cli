@@ -397,8 +397,101 @@ async function useCaseFlow(project: ProjectInfo): Promise<void> {
 // Endpoint Flow
 // ============================================================
 
-export async function endpointFlow(project: ProjectInfo): Promise<void> {
+/** Find the BFF source files recursively, excluding .g.dart */
+function findBffFiles(dir: string): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(dir)) return results;
+
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...findBffFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('.dart') && !entry.name.includes('.g.')) {
+      results.push(fullPath);
+    }
+  }
+  return results.sort();
+}
+
+/** Try to infer which BFF API file matches the given endpoint path */
+function inferBffFile(bffFiles: string[], endpointPath: string): string | null {
+  const firstSegment = endpointPath.replace(/^\//, '').split('/')[0].toLowerCase();
+  if (!firstSegment) return null;
+
+  // Extract domain from each file: bff_{domain}_api.dart → domain
+  type FileWithDomain = { file: string; domain: string };
+  const withDomains: FileWithDomain[] = bffFiles.map((f) => {
+    const base = path.basename(f, '.dart');
+    const domain = base.replace(/^bff_/, '').replace(/_api$/, '');
+    return { file: f, domain };
+  });
+
+  // 1. Exact match: domain == segment
+  const exact = withDomains.filter((x) => x.domain === firstSegment);
+  if (exact.length === 1) return exact[0].file;
+
+  // 2. Singular match: strip trailing 's'
+  const singular = firstSegment.replace(/s$/, '');
+  const singularMatch = withDomains.filter((x) => x.domain === singular);
+  if (singularMatch.length === 1) return singularMatch[0].file;
+
+  // 3. Domain ends with segment (e.g. "core_auth" ends with "auth")
+  const endsWith = withDomains.filter(
+    (x) => x.domain.endsWith(firstSegment) || x.domain.endsWith(singular),
+  );
+  if (endsWith.length === 1) return endsWith[0].file;
+
+  // 4. Segment contains domain or domain contains segment
+  const contains = withDomains.filter(
+    (x) => firstSegment.includes(x.domain) || singular.includes(x.domain),
+  );
+  if (contains.length === 1) return contains[0].file;
+
+  return null; // Ambiguous or no match
+}
+
+/** Auto-find the package with lib/data/api/bff/ (typically core) */
+async function resolveEndpointProject(): Promise<ProjectInfo | null> {
+  const s = clack.spinner();
+  s.start('Finding BFF package...');
+
+  const monorepoRoot = findMonorepoRoot(process.cwd());
+  if (monorepoRoot) {
+    const packages = discoverPackages(monorepoRoot);
+    const bffPackage = packages.find((p) =>
+      fs.existsSync(path.join(p.projectRoot, 'lib', 'data', 'api', 'bff')),
+    );
+    if (bffPackage) {
+      s.stop(`Using ${chalk.green(bffPackage.projectName)}`);
+      return bffPackage;
+    }
+  }
+
+  // Try current directory
+  const cwdProject = analyzeProject(process.cwd());
+  if (cwdProject && fs.existsSync(path.join(cwdProject.projectRoot, 'lib', 'data', 'api', 'bff'))) {
+    s.stop(`Using ${chalk.green(cwdProject.projectName)}`);
+    return cwdProject;
+  }
+
+  s.stop('No BFF package found');
+  clack.outro(chalk.red('Could not find a package with lib/data/api/bff/.'));
+  return null;
+}
+
+export async function endpointFlow(): Promise<void> {
+  const project = await resolveEndpointProject();
+  if (!project) return;
+
   const lib = path.join(project.projectRoot, 'lib');
+  const bffDir = path.join(lib, 'data', 'api', 'bff');
+  const bffFiles = findBffFiles(bffDir);
+
+  if (bffFiles.length === 0) {
+    clack.outro(chalk.red('No BFF API files found. Ensure lib/data/api/bff/ exists with .dart files.'));
+    return;
+  }
 
   // 1. HTTP Method
   const httpMethod = await clack.select({
@@ -421,42 +514,22 @@ export async function endpointFlow(project: ProjectInfo): Promise<void> {
   });
   if (clack.isCancel(endpointPath)) { clack.cancel('Cancelled'); return; }
 
-  // 3. BFF API file (auto-detected)
-  const bffDir = path.join(lib, 'data', 'api', 'bff');
-  let bffApiFile = '';
+  // 3. BFF API file — try to infer from path, only ask if ambiguous
+  let bffApiFile = inferBffFile(bffFiles, endpointPath as string);
 
-  if (fs.existsSync(bffDir)) {
-    const dartFiles = fs.readdirSync(bffDir)
-      .filter((f) => f.endsWith('.dart'))
-      .sort();
-
-    if (dartFiles.length > 0) {
-      const selected = await clack.select({
-        message: 'Select BFF API file',
-        options: dartFiles.map((f) => ({
-          value: path.join(bffDir, f),
-          label: f,
-        })),
-      });
-      if (clack.isCancel(selected)) { clack.cancel('Cancelled'); return; }
-      bffApiFile = selected as string;
-    } else {
-      const customPath = await clack.text({
-        message: 'BFF API file path (no .dart files found in bff/)',
-        placeholder: 'lib/data/api/bff/my_api.dart',
-        validate: (v) => { if (!v.trim()) return 'Path is required'; },
-      });
-      if (clack.isCancel(customPath)) { clack.cancel('Cancelled'); return; }
-      bffApiFile = path.resolve(customPath as string);
-    }
+  if (bffApiFile) {
+    clack.log.info(`Auto-detected BFF file: ${chalk.cyan(path.basename(bffApiFile))}`);
   } else {
-    const customPath = await clack.text({
-      message: 'BFF API file path (bff/ dir not found)',
-      placeholder: 'lib/data/api/bff/my_api.dart',
-      validate: (v) => { if (!v.trim()) return 'Path is required'; },
+    // Couldn't infer — ask user
+    const selected = await clack.select({
+      message: 'Could not auto-detect BFF file. Select one:',
+      options: bffFiles.map((f) => ({
+        value: f,
+        label: path.relative(bffDir, f),
+      })),
     });
-    if (clack.isCancel(customPath)) { clack.cancel('Cancelled'); return; }
-    bffApiFile = path.resolve(customPath as string);
+    if (clack.isCancel(selected)) { clack.cancel('Cancelled'); return; }
+    bffApiFile = selected as string;
   }
 
   // 4. UseCase name (auto-inferred from endpoint path, editable)
@@ -487,6 +560,7 @@ export async function endpointFlow(project: ProjectInfo): Promise<void> {
   try {
     await createEndpoint({
       projectRoot: project.projectRoot,
+      projectName: project.projectName,
       httpMethod: httpMethod as EndpointOptions['httpMethod'],
       endpointPath: endpointPath as string,
       bffApiFile,
@@ -549,11 +623,8 @@ export async function interactiveMode(): Promise<void> {
       await useCaseFlow(project);
       break;
     }
-    case 'endpoint': {
-      const project = await resolveProject();
-      if (!project) return;
-      await endpointFlow(project);
+    case 'endpoint':
+      await endpointFlow();
       break;
-    }
   }
 }

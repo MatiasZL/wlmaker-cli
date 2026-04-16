@@ -112,20 +112,26 @@ export function entityBoilerplate(pascal: string): string {
 `;
 }
 
-export function modelBoilerplate(name: string, pascal: string): string {
-  return `import 'package:json_annotation/json_annotation.dart';
-import '../../domain/entities/${name}/${name}_entity.dart';
+export function modelBoilerplate(name: string, pascal: string, projectName: string): string {
+  return `import 'package:${projectName}/core.dart';
+import 'package:json_annotation/json_annotation.dart';
 
 part '${name}_model.g.dart';
 
-@JsonSerializable()
-class ${pascal}Model extends ${pascal}Entity {
-  const ${pascal}Model() : super();
+@JsonSerializable(createToJson: true)
+class ${pascal}Model {
+  // TODO: Define constructor parameters and fields
+
+  const ${pascal}Model();
 
   factory ${pascal}Model.fromJson(Map<String, dynamic> json) =>
       _\$${pascal}ModelFromJson(json);
 
-  @override
+  ${pascal}Entity toEntity() {
+    // TODO: Implement toEntity mapping
+    throw UnimplementedError();
+  }
+
   Map<String, dynamic> toJson() => _\$${pascal}ModelToJson(this);
 }
 `;
@@ -136,11 +142,11 @@ export function requestModelBoilerplate(name: string, pascal: string): string {
 
 part '${name}_request_model.g.dart';
 
-@JsonSerializable()
+@JsonSerializable(createToJson: true)
 class ${pascal}RequestModel {
-  // TODO: Define fields
+  // TODO: Define constructor parameters and fields
 
-  ${pascal}RequestModel();
+  const ${pascal}RequestModel();
 
   factory ${pascal}RequestModel.fromJson(Map<String, dynamic> json) =>
       _\$${pascal}RequestModelFromJson(json);
@@ -240,6 +246,7 @@ export function repositoryInterfaceMethod(
 export function repositoryImplMethod(
   methodName: string,
   returnType: string,
+  modelType: string,
   params: { name: string; type: string }[],
   datasourceName: string,
 ): string {
@@ -250,6 +257,7 @@ export function repositoryImplMethod(
 
   return `@override
   Future<${returnType}> ${methodName}(${paramList}) async {
-    return await ${datasourceName}.${methodName}(${args});
+    final model = await ${datasourceName}.${methodName}(${args});
+    return model.toEntity();
   }`;
 }
