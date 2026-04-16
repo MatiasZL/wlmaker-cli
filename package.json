@@ -1,6 +1,6 @@
 {
   "name": "wlmaker",
-  "version": "1.2.9",
+  "version": "1.2.10",
   "description": "Create Flutter BLoCs with Freezed sealed classes from the terminal",
   "keywords": [
     "flutter",
