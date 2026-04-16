@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import { createBloc } from './core/create-bloc.js';
 import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
-import { interactiveMode } from './interactive.js';
+import { interactiveMode, resolveProject, endpointFlow } from './interactive.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
@@ -103,6 +103,16 @@ program
       }
     },
   );
+
+// Endpoint subcommand
+program
+  .command('endpoint')
+  .description('Generate Clean Architecture stack for a BFF endpoint')
+  .action(async () => {
+    const project = await resolveProject();
+    if (!project) return;
+    await endpointFlow(project);
+  });
 
 // Default action: no subcommand -> interactive mode
 program.action(async () => {

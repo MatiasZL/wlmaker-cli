@@ -13,6 +13,7 @@ import {
 import { createBloc } from './core/create-bloc.js';
 import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
+import { createEndpoint, type EndpointOptions } from './core/create-endpoint.js';
 import { detectDesignSystem } from './core/design-system-analyzer.js';
 import {
   type Tier,
@@ -24,12 +25,14 @@ import {
   getDefaultPattern,
   patternLabel,
 } from './core/tier.js';
+import { jsonToFields, type DartField } from './core/json-to-dart.js';
+import { pascalCase, camelCase } from 'change-case';
 
 const SNAKE_CASE_REGEX = /^[a-z][a-z0-9_]*$/;
 
-type CreateType = 'bloc' | 'widget' | 'usecase';
+type CreateType = 'bloc' | 'widget' | 'usecase' | 'endpoint';
 
-async function resolveProject(): Promise<ProjectInfo | null> {
+export async function resolveProject(): Promise<ProjectInfo | null> {
   const s = clack.spinner();
 
   // 1. Try current directory
@@ -393,6 +396,299 @@ async function useCaseFlow(project: ProjectInfo): Promise<void> {
 }
 
 // ============================================================
+// Endpoint Flow
+// ============================================================
+
+export async function endpointFlow(project: ProjectInfo): Promise<void> {
+  const lib = path.join(project.projectRoot, 'lib');
+
+  // 1. HTTP Method
+  const httpMethod = await clack.select({
+    message: 'HTTP Method',
+    options: [
+      { value: 'GET', label: 'GET' },
+      { value: 'POST', label: 'POST' },
+      { value: 'PUT', label: 'PUT' },
+      { value: 'PATCH', label: 'PATCH' },
+      { value: 'DELETE', label: 'DELETE' },
+    ],
+  });
+  if (clack.isCancel(httpMethod)) { clack.cancel('Cancelled'); return; }
+
+  // 2. Endpoint path
+  const endpointPath = await clack.text({
+    message: 'Endpoint path (e.g. /cp/{zipCode})',
+    placeholder: '/api/users/{id}',
+    validate: (v) => { if (!v.trim()) return 'Path is required'; },
+  });
+  if (clack.isCancel(endpointPath)) { clack.cancel('Cancelled'); return; }
+
+  // 3. BFF API file
+  const bffDir = path.join(lib, 'data', 'api', 'bff');
+  let bffApiFile = '';
+
+  if (fs.existsSync(bffDir)) {
+    const dartFiles = fs.readdirSync(bffDir)
+      .filter((f) => f.endsWith('.dart'))
+      .sort();
+
+    if (dartFiles.length > 0) {
+      const selected = await clack.select({
+        message: 'Select BFF API file',
+        options: [
+          ...dartFiles.map((f) => ({
+            value: path.join(bffDir, f),
+            label: f,
+          })),
+          { value: '__custom__', label: 'Custom path...' },
+        ],
+      });
+      if (clack.isCancel(selected)) { clack.cancel('Cancelled'); return; }
+
+      if (selected === '__custom__') {
+        const customPath = await clack.text({
+          message: 'BFF API file path',
+          placeholder: 'lib/data/api/bff/my_api.dart',
+          validate: (v) => { if (!v.trim()) return 'Path is required'; },
+        });
+        if (clack.isCancel(customPath)) { clack.cancel('Cancelled'); return; }
+        bffApiFile = path.resolve(customPath as string);
+      } else {
+        bffApiFile = selected as string;
+      }
+    } else {
+      const customPath = await clack.text({
+        message: 'BFF API file path (no .dart files found in bff/)',
+        placeholder: 'lib/data/api/bff/my_api.dart',
+        validate: (v) => { if (!v.trim()) return 'Path is required'; },
+      });
+      if (clack.isCancel(customPath)) { clack.cancel('Cancelled'); return; }
+      bffApiFile = path.resolve(customPath as string);
+    }
+  } else {
+    const customPath = await clack.text({
+      message: 'BFF API file path (bff/ dir not found)',
+      placeholder: 'lib/data/api/bff/my_api.dart',
+      validate: (v) => { if (!v.trim()) return 'Path is required'; },
+    });
+    if (clack.isCancel(customPath)) { clack.cancel('Cancelled'); return; }
+    bffApiFile = path.resolve(customPath as string);
+  }
+
+  // 4. Response model
+  const responseChoice = await clack.select({
+    message: 'Response model',
+    options: [
+      { value: 'existing', label: 'Use existing model', hint: 'Reference an already created model' },
+      { value: 'json', label: 'Paste JSON', hint: 'Generate entity + model from JSON' },
+    ],
+  });
+  if (clack.isCancel(responseChoice)) { clack.cancel('Cancelled'); return; }
+
+  let responseModelName = '';
+  let responseFields: DartField[] | undefined;
+
+  if (responseChoice === 'json') {
+    const modelName = await clack.text({
+      message: 'Response model name (snake_case)',
+      placeholder: 'e.g. user_profile',
+      validate: (v) => {
+        if (!v.trim()) return 'Name is required';
+        if (!SNAKE_CASE_REGEX.test(v)) return 'Must be snake_case';
+      },
+    });
+    if (clack.isCancel(modelName)) { clack.cancel('Cancelled'); return; }
+    responseModelName = modelName as string;
+
+    const jsonStr = await clack.text({
+      message: 'Paste the JSON response',
+      placeholder: '{ "id": 1, "name": "John" }',
+      validate: (v) => {
+        if (!v.trim()) return 'JSON is required';
+        try { JSON.parse(v); } catch { return 'Invalid JSON'; }
+      },
+    });
+    if (clack.isCancel(jsonStr)) { clack.cancel('Cancelled'); return; }
+    responseFields = jsonToFields(jsonStr as string);
+  } else {
+    const modelName = await clack.text({
+      message: 'Existing response model name (snake_case)',
+      placeholder: 'e.g. user_profile',
+      validate: (v) => { if (!v.trim()) return 'Name is required'; },
+    });
+    if (clack.isCancel(modelName)) { clack.cancel('Cancelled'); return; }
+    responseModelName = modelName as string;
+  }
+
+  // 5. Request model (if POST/PUT/PATCH)
+  let requestModelName: string | undefined;
+  let requestFields: DartField[] | undefined;
+  const needsBody = ['POST', 'PUT', 'PATCH'].includes(httpMethod as string);
+
+  if (needsBody) {
+    const requestChoice = await clack.select({
+      message: 'Request body',
+      options: [
+        { value: 'json', label: 'Paste JSON', hint: 'Generate request model from JSON' },
+        { value: 'existing', label: 'Use existing model', hint: 'Reference an already created model' },
+        { value: 'none', label: 'No body', hint: 'Just path/query params' },
+      ],
+    });
+    if (clack.isCancel(requestChoice)) { clack.cancel('Cancelled'); return; }
+
+    if (requestChoice === 'json') {
+      const reqName = await clack.text({
+        message: 'Request model name (snake_case)',
+        placeholder: `e.g. create_${responseModelName}`,
+        validate: (v) => {
+          if (!v.trim()) return 'Name is required';
+          if (!SNAKE_CASE_REGEX.test(v)) return 'Must be snake_case';
+        },
+      });
+      if (clack.isCancel(reqName)) { clack.cancel('Cancelled'); return; }
+      requestModelName = reqName as string;
+
+      const reqJson = await clack.text({
+        message: 'Paste the request JSON body',
+        placeholder: '{ "name": "John", "email": "john@example.com" }',
+        validate: (v) => {
+          if (!v.trim()) return 'JSON is required';
+          try { JSON.parse(v); } catch { return 'Invalid JSON'; }
+        },
+      });
+      if (clack.isCancel(reqJson)) { clack.cancel('Cancelled'); return; }
+      requestFields = jsonToFields(reqJson as string);
+    } else if (requestChoice === 'existing') {
+      const reqName = await clack.text({
+        message: 'Existing request model name (snake_case)',
+        placeholder: `e.g. create_${responseModelName}`,
+        validate: (v) => { if (!v.trim()) return 'Name is required'; },
+      });
+      if (clack.isCancel(reqName)) { clack.cancel('Cancelled'); return; }
+      requestModelName = reqName as string;
+    }
+  }
+
+  // 6. Auto-infer UseCase name from endpoint path
+  const pathSegments = (endpointPath as string)
+    .replace(/^\//, '')
+    .split('/')
+    .filter((s) => !s.startsWith('{'));
+  const inferredName = pathSegments.length > 0
+    ? 'get_' + pathSegments.join('_')
+    : 'get_data';
+
+  const useCaseName = await clack.text({
+    message: 'UseCase name (snake_case)',
+    placeholder: inferredName,
+    initialValue: inferredName,
+    validate: (v) => {
+      if (!v.trim()) return 'Name is required';
+      if (!SNAKE_CASE_REGEX.test(v)) return 'Must be snake_case';
+    },
+  });
+  if (clack.isCancel(useCaseName)) { clack.cancel('Cancelled'); return; }
+
+  // 7. Datasource file
+  const datasourceFile = await clack.text({
+    message: 'Datasource file path',
+    placeholder: `lib/data/datasources/${responseModelName}_datasource.dart`,
+    validate: (v) => { if (!v.trim()) return 'Path is required'; },
+  });
+  if (clack.isCancel(datasourceFile)) { clack.cancel('Cancelled'); return; }
+
+  const datasourceClassName = await clack.text({
+    message: 'Datasource class name',
+    placeholder: `${pascalCase(responseModelName)}Datasource`,
+    initialValue: `${pascalCase(responseModelName)}Datasource`,
+    validate: (v) => { if (!v.trim()) return 'Class name is required'; },
+  });
+  if (clack.isCancel(datasourceClassName)) { clack.cancel('Cancelled'); return; }
+
+  // 8. Repository interface
+  const repositoryInterfaceFile = await clack.text({
+    message: 'Repository interface file path',
+    placeholder: `lib/domain/repositories/${responseModelName}_repository.dart`,
+    validate: (v) => { if (!v.trim()) return 'Path is required'; },
+  });
+  if (clack.isCancel(repositoryInterfaceFile)) { clack.cancel('Cancelled'); return; }
+
+  const repositoryInterfaceName = await clack.text({
+    message: 'Repository interface name',
+    placeholder: `${pascalCase(responseModelName)}Repository`,
+    initialValue: `${pascalCase(responseModelName)}Repository`,
+    validate: (v) => { if (!v.trim()) return 'Name is required'; },
+  });
+  if (clack.isCancel(repositoryInterfaceName)) { clack.cancel('Cancelled'); return; }
+
+  // 9. Repository implementation
+  const repositoryImplFile = await clack.text({
+    message: 'Repository implementation file path',
+    placeholder: `lib/data/repositories/${responseModelName}_repository_impl.dart`,
+    validate: (v) => { if (!v.trim()) return 'Path is required'; },
+  });
+  if (clack.isCancel(repositoryImplFile)) { clack.cancel('Cancelled'); return; }
+
+  const repositoryImplClassName = await clack.text({
+    message: 'Repository implementation class name',
+    placeholder: `${pascalCase(responseModelName)}RepositoryImpl`,
+    initialValue: `${pascalCase(responseModelName)}RepositoryImpl`,
+    validate: (v) => { if (!v.trim()) return 'Name is required'; },
+  });
+  if (clack.isCancel(repositoryImplClassName)) { clack.cancel('Cancelled'); return; }
+
+  // 10. Feature name for grouping
+  const feature = await clack.text({
+    message: 'Feature name (snake_case, for directory grouping)',
+    placeholder: responseModelName,
+    initialValue: responseModelName,
+    validate: (v) => {
+      if (!v.trim()) return 'Feature name is required';
+      if (!SNAKE_CASE_REGEX.test(v)) return 'Must be snake_case';
+    },
+  });
+  if (clack.isCancel(feature)) { clack.cancel('Cancelled'); return; }
+
+  // 11. Run build_runner?
+  const runBuildRunner = await clack.confirm({
+    message: 'Run build_runner after generation?',
+    initialValue: project.hasBuildRunner,
+  });
+  if (clack.isCancel(runBuildRunner)) { clack.cancel('Cancelled'); return; }
+
+  // Generate
+  const genSpinner = clack.spinner();
+  genSpinner.start('Generating endpoint stack...');
+
+  try {
+    await createEndpoint({
+      projectRoot: project.projectRoot,
+      httpMethod: httpMethod as EndpointOptions['httpMethod'],
+      endpointPath: endpointPath as string,
+      bffApiFile,
+      responseModelName,
+      responseFields,
+      requestModelName,
+      requestFields,
+      useCaseName: useCaseName as string,
+      datasourceFile: datasourceFile as string,
+      datasourceClassName: datasourceClassName as string,
+      repositoryInterfaceFile: repositoryInterfaceFile as string,
+      repositoryInterfaceName: repositoryInterfaceName as string,
+      repositoryImplFile: repositoryImplFile as string,
+      repositoryImplClassName: repositoryImplClassName as string,
+      feature: feature as string,
+      runBuildRunner: runBuildRunner as boolean,
+    });
+    genSpinner.stop('Endpoint generated');
+    clack.outro(chalk.green('Done!'));
+  } catch (error) {
+    genSpinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+// ============================================================
 // Main Interactive Mode
 // ============================================================
 
@@ -409,6 +705,11 @@ export async function interactiveMode(): Promise<void> {
         value: 'usecase',
         label: 'Widgetbook Use-Case',
         hint: 'Component showcase',
+      },
+      {
+        value: 'endpoint',
+        label: 'Endpoint',
+        hint: 'BFF Clean Architecture stack',
       },
     ],
   });
@@ -434,6 +735,12 @@ export async function interactiveMode(): Promise<void> {
       const project = await resolveProject();
       if (!project) return;
       await useCaseFlow(project);
+      break;
+    }
+    case 'endpoint': {
+      const project = await resolveProject();
+      if (!project) return;
+      await endpointFlow(project);
       break;
     }
   }
