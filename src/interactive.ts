@@ -458,13 +458,24 @@ async function resolveEndpointProject(): Promise<ProjectInfo | null> {
 
   const monorepoRoot = findMonorepoRoot(process.cwd());
   if (monorepoRoot) {
-    const packages = discoverPackages(monorepoRoot);
-    const bffPackage = packages.find((p) =>
-      fs.existsSync(path.join(p.projectRoot, 'lib', 'data', 'api', 'bff')),
-    );
-    if (bffPackage) {
-      s.stop(`Using ${chalk.green(bffPackage.projectName)}`);
-      return bffPackage;
+    // Scan all package dirs directly — don't filter by freezed/bloc
+    const packageBases = ['packages', 'packages/features'];
+    for (const base of packageBases) {
+      const baseDir = path.join(monorepoRoot, base);
+      if (!fs.existsSync(baseDir)) continue;
+      const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const candidate = path.join(baseDir, entry.name);
+        if (!fs.existsSync(path.join(candidate, 'pubspec.yaml'))) continue;
+        if (fs.existsSync(path.join(candidate, 'lib', 'data', 'api', 'bff'))) {
+          const project = analyzeProject(candidate);
+          if (project) {
+            s.stop(`Using ${chalk.green(project.projectName)}`);
+            return project;
+          }
+        }
+      }
     }
   }
 

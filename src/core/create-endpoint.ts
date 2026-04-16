@@ -104,10 +104,6 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
       modelType,
     );
     injectMethod(bffPath, extractClassName(bffPath), method);
-
-    // Inject model import
-    const modelImport = `import 'package:${options.projectName}/data/models/${feature}/${useCaseSnake}_model.dart';`;
-    injectImport(bffPath, modelImport);
   } else {
     console.log(chalk.yellow(`  ⚠ BFF API file not found: ${bffPath}`));
   }
@@ -136,10 +132,6 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
       methodParamsForSignature,
     );
     injectMethod(repoIfacePath, repositoryInterfaceName, ifaceMethod);
-
-    // Inject entity import
-    const entityImport = `import 'package:${options.projectName}/domain/entities/${feature}/${useCaseSnake}_entity.dart';`;
-    injectImport(repoIfacePath, entityImport);
   } else {
     console.log(chalk.yellow(`  ⚠ Repository interface not found: ${repoIfacePath}`));
   }
