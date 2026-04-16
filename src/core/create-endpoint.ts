@@ -11,6 +11,9 @@ import {
   datasourceMethod,
   repositoryInterfaceMethod,
   repositoryImplMethod,
+  datasourceModuleRegistration,
+  repositoryModuleRegistration,
+  useCaseModuleRegistration,
 } from './endpoint-templates.js';
 import { injectMethod, injectImport, injectExport } from './dart-injector.js';
 
@@ -27,6 +30,12 @@ export interface EndpointOptions {
 
   // UseCase name (snake_case) — also used as entity/model name
   useCaseName: string;
+
+  // DI registration target: 'app_base' | 'app_base_loyalty' | 'none'
+  diTarget?: string;
+
+  // Whether DI registrations use @lazySingleton annotation
+  diLazySingleton?: boolean;
 }
 
 export async function createEndpoint(options: EndpointOptions): Promise<void> {
@@ -58,7 +67,6 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
   // Types
   const modelType = `${pascal}Model`;
   const entityType = `${pascal}Entity`;
-  const repositoryInterfaceSnake = path.basename(repositoryInterfaceFile, '.dart');
 
   const spinner = (msg: string) => console.log(chalk.cyan(`  → ${msg}`));
 
@@ -160,17 +168,24 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
   fs.writeFileSync(
     path.join(useCaseDir, `${useCaseSnake}_usecase.dart`),
     useCaseTemplate(
-      useCaseSnake,
       useCasePascal,
       camelCase(options.useCaseName),
       methodParamsForSignature,
       entityType,
-      repositoryInterfaceSnake,
+      repositoryInterfaceName,
+      options.projectName,
     ),
   );
 
   // 9. Update barrel files
   spinner('Updating barrel files');
+
+  // Datasource barrel
+  const dsFileName = path.basename(datasourceFile);
+  injectExport(
+    path.join(lib, 'data', 'datasources', 'datasources.dart'),
+    `export '${dsFileName}';`,
+  );
 
   // Entity barrel: entities/{feature}/{feature}.dart
   const entityBarrel = path.join(lib, 'domain', 'entities', feature, `${feature}.dart`);
@@ -201,6 +216,54 @@ export async function createEndpoint(options: EndpointOptions): Promise<void> {
     path.join(lib, 'domain', 'usecases', 'usecases.dart'),
     `export '${feature}/${feature}.dart';`,
   );
+
+  // 10. Register in DI modules (if diTarget is set)
+  if (options.diTarget && options.diTarget !== 'none') {
+    spinner('Registering in DI modules');
+    const appBaseDir = findAppBasePackageDir(options.projectRoot, options.diTarget);
+    if (appBaseDir) {
+      const domainPascal = pascalCase(domain);
+      const lazy = options.diLazySingleton !== false;
+
+      // Datasource module
+      const dsModuleFile = path.join(appBaseDir, 'datasources_module.dart');
+      const dsRegistration = datasourceModuleRegistration(domainPascal, lazy);
+      injectModuleRegistration(
+        dsModuleFile,
+        'DataSourceModule',
+        dsRegistration,
+        `${domainPascal}RestDataSource`,
+      );
+
+      // Repository module
+      const repoModuleFile = path.join(appBaseDir, 'repositories_module.dart');
+      const repoRegistration = repositoryModuleRegistration(domainPascal, lazy);
+      injectModuleRegistration(
+        repoModuleFile,
+        'RepositoriesModule',
+        repoRegistration,
+        `${domainPascal}RepositoryData`,
+      );
+
+      // UseCase module
+      const ucModuleFile = path.join(appBaseDir, 'usecases_module.dart');
+      const ucRegistration = useCaseModuleRegistration(useCasePascal, domainPascal, lazy);
+      injectModuleRegistration(
+        ucModuleFile,
+        'UseCasesModule',
+        ucRegistration,
+        `${useCasePascal}UseCase`,
+      );
+
+      // Ensure core import exists in all three module files
+      const coreImport = `import 'package:${options.projectName}/core.dart';`;
+      injectImport(dsModuleFile, coreImport);
+      injectImport(repoModuleFile, coreImport);
+      injectImport(ucModuleFile, coreImport);
+    } else {
+      console.log(chalk.yellow(`  ⚠ Package "${options.diTarget}" not found in monorepo`));
+    }
+  }
 
   console.log(chalk.green(`\n✓ Endpoint "${options.useCaseName}" generated successfully.`));
 }
@@ -261,4 +324,85 @@ function extractClassName(filePath: string): string {
   const match = content.match(/class\s+(\w+)\s+/);
   if (!match) throw new Error(`No class found in ${filePath}`);
   return match[1];
+}
+
+function findAppBasePackageDir(projectRoot: string, packageName: string): string | null {
+  let dir = path.resolve(projectRoot);
+  for (let i = 0; i < 10; i++) {
+    const candidate = path.join(dir, 'packages', packageName, 'lib', 'dependencies');
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+function injectModuleRegistration(
+  filePath: string,
+  className: string,
+  registrationCode: string,
+  dedupKey: string,
+): void {
+  if (!fs.existsSync(filePath)) {
+    console.log(chalk.yellow(`  ⚠ Module file not found: ${filePath}`));
+    return;
+  }
+
+  const content = fs.readFileSync(filePath, 'utf8');
+
+  // Already registered
+  if (content.includes(dedupKey)) {
+    return;
+  }
+
+  // Find the class declaration
+  const classRegex = new RegExp(`class\\s+${className}\\s*[^{]*\\{`);
+  const classMatch = content.match(classRegex);
+  if (!classMatch) {
+    console.log(chalk.yellow(`  ⚠ Class "${className}" not found in ${filePath}`));
+    return;
+  }
+
+  const classStart = content.indexOf(classMatch[0]);
+
+  // Track braces to find end of class
+  let braceCount = 0;
+  let classEnd = -1;
+  let foundOpen = false;
+
+  for (let i = classStart; i < content.length; i++) {
+    if (content[i] === '{') {
+      braceCount++;
+      foundOpen = true;
+    } else if (content[i] === '}') {
+      braceCount--;
+      if (foundOpen && braceCount === 0) {
+        classEnd = i;
+        break;
+      }
+    }
+  }
+
+  if (classEnd === -1) {
+    console.log(chalk.yellow(`  ⚠ Could not find closing brace for "${className}" in ${filePath}`));
+    return;
+  }
+
+  // Insert before closing brace with proper indentation
+  const indentedCode = registrationCode
+    .split('\n')
+    .map((line) => (line.trim() ? `  ${line}` : ''))
+    .join('\n');
+
+  const newContent =
+    content.slice(0, classEnd) +
+    '\n' +
+    indentedCode +
+    '\n' +
+    content.slice(classEnd);
+
+  fs.writeFileSync(filePath, newContent);
 }

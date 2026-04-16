@@ -309,9 +309,9 @@ async function widgetFlow(): Promise<void> {
 // Use-Case Flow
 // ============================================================
 
-async function useCaseFlow(project: ProjectInfo): Promise<void> {
-  // Detect design system
-  const ds = detectDesignSystem(project.projectRoot);
+async function useCaseFlow(): Promise<void> {
+  // Detect design system from cwd — no need to select a package
+  const ds = detectDesignSystem(process.cwd());
   if (!ds) {
     clack.outro(
       chalk.red(
@@ -382,7 +382,7 @@ async function useCaseFlow(project: ProjectInfo): Promise<void> {
 
   try {
     await createUseCase(name as string, tier, {
-      projectRoot: project.projectRoot,
+      projectRoot: process.cwd(),
       buildRunner: runBuildRunner as boolean,
     });
     genSpinner.stop('Use-case generated');
@@ -419,13 +419,15 @@ function inferBffFile(bffFiles: string[], endpointPath: string): string | null {
   const firstSegment = endpointPath.replace(/^\//, '').split('/')[0].toLowerCase();
   if (!firstSegment) return null;
 
-  // Extract domain from each file: bff_{domain}_api.dart → domain
+  // Only consider files matching bff_{domain}_api.dart pattern
   type FileWithDomain = { file: string; domain: string };
-  const withDomains: FileWithDomain[] = bffFiles.map((f) => {
-    const base = path.basename(f, '.dart');
-    const domain = base.replace(/^bff_/, '').replace(/_api$/, '');
-    return { file: f, domain };
-  });
+  const withDomains: FileWithDomain[] = bffFiles
+    .filter((f) => /^bff_.+_api\.dart$/.test(path.basename(f)))
+    .map((f) => {
+      const base = path.basename(f, '.dart');
+      const domain = base.replace(/^bff_/, '').replace(/_api$/, '');
+      return { file: f, domain };
+    });
 
   // 1. Exact match: domain == segment
   const exact = withDomains.filter((x) => x.domain === firstSegment);
@@ -451,14 +453,14 @@ function inferBffFile(bffFiles: string[], endpointPath: string): string | null {
   return null; // Ambiguous or no match
 }
 
-/** Auto-find the package with lib/data/api/bff/ (typically core) */
+/** Auto-find the package with lib/data/api/bff/ */
 async function resolveEndpointProject(): Promise<ProjectInfo | null> {
   const s = clack.spinner();
   s.start('Finding BFF package...');
 
   const monorepoRoot = findMonorepoRoot(process.cwd());
   if (monorepoRoot) {
-    // Scan all package dirs directly — don't filter by freezed/bloc
+    s.message(`Monorepo found at ${monorepoRoot}`);
     const packageBases = ['packages', 'packages/features'];
     for (const base of packageBases) {
       const baseDir = path.join(monorepoRoot, base);
@@ -468,7 +470,9 @@ async function resolveEndpointProject(): Promise<ProjectInfo | null> {
         if (!entry.isDirectory()) continue;
         const candidate = path.join(baseDir, entry.name);
         if (!fs.existsSync(path.join(candidate, 'pubspec.yaml'))) continue;
-        if (fs.existsSync(path.join(candidate, 'lib', 'data', 'api', 'bff'))) {
+        const bffPath = path.join(candidate, 'lib', 'data', 'api', 'bff');
+        s.message(`Checking ${candidate} → bff exists: ${fs.existsSync(bffPath)}`);
+        if (fs.existsSync(bffPath)) {
           const project = analyzeProject(candidate);
           if (project) {
             s.stop(`Using ${chalk.green(project.projectName)}`);
@@ -477,6 +481,8 @@ async function resolveEndpointProject(): Promise<ProjectInfo | null> {
         }
       }
     }
+  } else {
+    s.message('No monorepo root found');
   }
 
   // Try current directory
@@ -487,8 +493,30 @@ async function resolveEndpointProject(): Promise<ProjectInfo | null> {
   }
 
   s.stop('No BFF package found');
-  clack.outro(chalk.red('Could not find a package with lib/data/api/bff/.'));
-  return null;
+
+  // Fallback: let user manually specify the path
+  const manualPath = await clack.text({
+    message: 'Enter the path to the package (must contain lib/data/api/bff/):',
+    placeholder: 'e.g. /path/to/my-package or ./packages/core',
+    validate: (v) => {
+      if (!v.trim()) return 'Path is required';
+      const resolved = path.resolve(v.trim());
+      if (!fs.existsSync(resolved)) return 'Path does not exist';
+      if (!fs.existsSync(path.join(resolved, 'pubspec.yaml'))) return 'No pubspec.yaml found at this path';
+      if (!fs.existsSync(path.join(resolved, 'lib', 'data', 'api', 'bff'))) return 'No lib/data/api/bff/ found at this path';
+    },
+  });
+  if (clack.isCancel(manualPath)) { clack.cancel('Cancelled'); return null; }
+
+  const resolved = path.resolve(manualPath as string);
+  const project = analyzeProject(resolved);
+  if (!project) {
+    clack.outro(chalk.red(`Could not analyze project at ${resolved}`));
+    return null;
+  }
+
+  clack.log.info(`Using ${chalk.green(project.projectName)}`);
+  return project;
 }
 
 export async function endpointFlow(): Promise<void> {
@@ -564,6 +592,29 @@ export async function endpointFlow(): Promise<void> {
   });
   if (clack.isCancel(useCaseName)) { clack.cancel('Cancelled'); return; }
 
+  // 5. DI target selection
+  const diTarget = await clack.select({
+    message: 'Where to register DI modules?',
+    options: [
+      { value: 'app_base', label: 'app_base' },
+      { value: 'app_base_loyalty', label: 'app_base_loyalty' },
+      { value: 'none', label: 'Skip (no DI registration)' },
+    ],
+    initialValue: 'app_base',
+  });
+  if (clack.isCancel(diTarget)) { clack.cancel('Cancelled'); return; }
+
+  // 6. LazySingleton? (only when registering in app_base)
+  let diLazySingleton = true;
+  if (diTarget !== 'none') {
+    const lazyAnswer = await clack.confirm({
+      message: 'Use @lazySingleton annotation?',
+      initialValue: true,
+    });
+    if (clack.isCancel(lazyAnswer)) { clack.cancel('Cancelled'); return; }
+    diLazySingleton = lazyAnswer as boolean;
+  }
+
   // Generate
   const genSpinner = clack.spinner();
   genSpinner.start('Generating endpoint stack...');
@@ -576,6 +627,8 @@ export async function endpointFlow(): Promise<void> {
       endpointPath: endpointPath as string,
       bffApiFile,
       useCaseName: useCaseName as string,
+      diTarget: diTarget as string,
+      diLazySingleton,
     });
     genSpinner.stop('Endpoint generated');
     clack.outro(chalk.green('Done!'));
@@ -628,12 +681,9 @@ export async function interactiveMode(): Promise<void> {
     case 'widget':
       await widgetFlow();
       break;
-    case 'usecase': {
-      const project = await resolveProject();
-      if (!project) return;
-      await useCaseFlow(project);
+    case 'usecase':
+      await useCaseFlow();
       break;
-    }
     case 'endpoint':
       await endpointFlow();
       break;

@@ -4,8 +4,15 @@ export function injectMethod(
   filePath: string,
   className: string,
   methodCode: string,
+  dedupKey?: string,
 ): void {
   const content = fs.readFileSync(filePath, 'utf8');
+
+  // Check if method already exists (by dedupKey or first non-annotation line)
+  const dedup = dedupKey ?? findSignature(methodCode);
+  if (dedup && content.includes(dedup)) {
+    return; // Already exists
+  }
 
   // Find the class declaration
   const classRegex = new RegExp(`class\\s+${className}\\s*[^{]*\\{`);
@@ -36,12 +43,6 @@ export function injectMethod(
 
   if (classEnd === -1) {
     throw new Error(`Could not find closing brace for class "${className}" in ${filePath}`);
-  }
-
-  // Check if method already exists (by first line of methodCode, stripped)
-  const methodSignature = methodCode.trim().split('\n')[0].trim();
-  if (content.includes(methodSignature)) {
-    return; // Already exists
   }
 
   // Insert method before the closing brace with proper indentation
@@ -106,4 +107,19 @@ export function injectExport(filePath: string, exportLine: string): void {
   lines.sort();
 
   fs.writeFileSync(filePath, lines.join('\n') + '\n');
+}
+
+/**
+ * Finds the first non-annotation line in methodCode to use as dedup key.
+ * Skips lines that start with @ (like @override, @lazySingleton).
+ */
+function findSignature(methodCode: string): string | null {
+  const lines = methodCode.trim().split('\n');
+  for (const line of lines) {
+    const stripped = line.trim();
+    if (stripped && !stripped.startsWith('@')) {
+      return stripped;
+    }
+  }
+  return null;
 }

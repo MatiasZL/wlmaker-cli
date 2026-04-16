@@ -1,3 +1,4 @@
+import { camelCase } from 'change-case';
 import {
   type DartField,
   fieldsToConstructorParams,
@@ -18,12 +19,23 @@ export function entityTemplate(
     })
     .join('\n');
 
-  return `class ${pascal}Entity {
+  const propsList = fields
+    .map((f) => `    ${f.name},`)
+    .join('\n');
+
+  return `import 'package:equatable/equatable.dart';
+
+class ${pascal}Entity extends Equatable {
 ${props}
 
   const ${pascal}Entity({
 ${params}
   });
+
+  @override
+  List<Object?> get props => [
+${propsList}
+  ];
 }
 `;
 }
@@ -104,10 +116,15 @@ ${params}
 }
 
 export function entityBoilerplate(pascal: string): string {
-  return `class ${pascal}Entity {
+  return `import 'package:equatable/equatable.dart';
+
+class ${pascal}Entity extends Equatable {
   // TODO: Define fields
 
   const ${pascal}Entity();
+
+  @override
+  List<Object?> get props => [];
 }
 `;
 }
@@ -157,19 +174,19 @@ class ${pascal}RequestModel {
 }
 
 export function useCaseTemplate(
-  name: string,
   pascal: string,
   method: string,
   params: { name: string; type: string }[],
   returnType: string,
   repositoryInterface: string,
+  projectName: string,
 ): string {
   const hasParams = params.length > 0;
   const paramsClass = hasParams
     ? `
   class Params {
-${params.map((p) => `    final ${p.type} ${p.name};`).join('\n')}
     const Params({${params.map((p) => `required this.${p.name}`).join(', ')}});
+${params.map((p) => `    final ${p.type} ${p.name};`).join('\n')}
   }
 `
     : '';
@@ -180,16 +197,15 @@ ${params.map((p) => `    final ${p.type} ${p.name};`).join('\n')}
     ? params.map((p) => `params.${p.name}`).join(', ')
     : '';
 
-  return `import 'package:dartz/dartz.dart';
-import '../../repositories/${repositoryInterface}.dart';
+  return `import 'package:${projectName}/core.dart';
 
 class ${pascal}UseCase {
-  final ${repositoryInterface} _repository;
-
   ${pascal}UseCase(this._repository);
+
+  final ${repositoryInterface} _repository;
 ${paramsClass}
   ${callReturn} call(${callParams}) async {
-    return await _repository.${method}(${args});
+    return _repository.${method}(${args});
   }
 }
 `;
@@ -246,18 +262,62 @@ export function repositoryInterfaceMethod(
 export function repositoryImplMethod(
   methodName: string,
   returnType: string,
-  modelType: string,
+  _modelType: string,
   params: { name: string; type: string }[],
-  datasourceName: string,
+  _datasourceName: string,
 ): string {
   const paramList = params
     .map((p) => `${p.type} ${p.name}`)
     .join(', ');
-  const args = params.map((p) => p.name).join(', ');
 
   return `@override
-  Future<${returnType}> ${methodName}(${paramList}) async {
-    final model = await ${datasourceName}.${methodName}(${args});
-    return model.toEntity();
+  Future<${returnType}> ${methodName}(${paramList}) {
+    // TODO: implement ${methodName}
+    throw UnimplementedError();
   }`;
+}
+
+export function datasourceModuleRegistration(domainPascal: string, lazy = true): string {
+  const dsClass = `${domainPascal}RestDataSource`;
+  const dsCamel = camelCase(dsClass);
+  const apiClass = `Bff${domainPascal}Api`;
+  const annotation = lazy ? '@lazySingleton\n' : '';
+
+  return `//============================================================================
+// ${domainPascal}
+//============================================================================
+${annotation}${dsClass} ${dsCamel}(${apiClass} api) =>
+    ${dsClass}(api: api);`;
+}
+
+export function repositoryModuleRegistration(domainPascal: string, lazy = true): string {
+  const repoInterface = `${domainPascal}Repository`;
+  const repoCamel = camelCase(repoInterface);
+  const repoImpl = `${domainPascal}RepositoryData`;
+  const dsClass = `${domainPascal}RestDataSource`;
+  const annotation = lazy ? '@lazySingleton\n' : '';
+
+  return `//============================================================================
+// ${domainPascal}
+//============================================================================
+${annotation}${repoInterface} ${repoCamel}(
+  ${dsClass} restDataSource,
+) => ${repoImpl}(restDataSource: restDataSource);`;
+}
+
+export function useCaseModuleRegistration(
+  useCasePascal: string,
+  domainPascal: string,
+  lazy = true,
+): string {
+  const useCaseClass = `${useCasePascal}UseCase`;
+  const useCaseCamel = camelCase(useCaseClass);
+  const repoInterface = `${domainPascal}Repository`;
+  const annotation = lazy ? '@lazySingleton\n' : '';
+
+  return `//============================================================================
+// ${domainPascal}
+//============================================================================
+${annotation}${useCaseClass} ${useCaseCamel}(${repoInterface} repository) =>
+    ${useCaseClass}(repository);`;
 }
