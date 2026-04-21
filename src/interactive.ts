@@ -15,6 +15,9 @@ import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
 import { createEndpoint, type EndpointOptions } from './core/create-endpoint.js';
 import { detectDesignSystem } from './core/design-system-analyzer.js';
+import { detectBookDir, serveBook } from './core/docs-serve.js';
+import { discoverCommands, displayCommands } from './core/docs-commands.js';
+import { discoverArchitecture, displayArchitecture } from './core/docs-architecture.js';
 import {
   type Tier,
   VALID_TIERS,
@@ -28,7 +31,7 @@ import {
 
 const SNAKE_CASE_REGEX = /^[a-z][a-z0-9_]*$/;
 
-type CreateType = 'bloc' | 'widget' | 'usecase' | 'endpoint';
+type CreateType = 'bloc' | 'widget' | 'usecase' | 'endpoint' | 'docs';
 
 export async function resolveProject(): Promise<ProjectInfo | null> {
   const s = clack.spinner();
@@ -639,6 +642,66 @@ export async function endpointFlow(): Promise<void> {
 }
 
 // ============================================================
+// Docs Flow
+// ============================================================
+
+export async function docsInteractiveMode(): Promise<void> {
+  clack.intro(chalk.bgCyan(chalk.black(' wlmaker docs ')));
+
+  const action = await clack.select({
+    message: 'What do you want to do?',
+    options: [
+      { value: 'serve', label: 'Serve', hint: 'Start Docusaurus dev server' },
+      { value: 'commands', label: 'Commands', hint: 'Show Makefile & melos commands' },
+      { value: 'architecture', label: 'Architecture', hint: 'Display monorepo tree' },
+    ],
+  });
+
+  if (clack.isCancel(action)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  switch (action) {
+    case 'serve': {
+      const bookDir = detectBookDir(process.cwd());
+      if (!bookDir) {
+        clack.outro(
+          chalk.red('No Docusaurus book/ directory found. Run from a monorepo root.'),
+        );
+        return;
+      }
+      clack.log.info(`Serving docs from ${chalk.cyan(bookDir)}`);
+      await serveBook(bookDir);
+      break;
+    }
+    case 'commands': {
+      const commands = discoverCommands(process.cwd());
+      if (commands.length === 0) {
+        clack.outro(chalk.yellow('No commands found. Run from a monorepo root.'));
+        return;
+      }
+      clack.log.info(`Found ${chalk.green(commands.length.toString())} command(s)`);
+      displayCommands(commands);
+      clack.outro(chalk.green('Done!'));
+      break;
+    }
+    case 'architecture': {
+      const info = discoverArchitecture(process.cwd());
+      if (!info) {
+        clack.outro(
+          chalk.yellow('No monorepo detected. Run from within a Melos monorepo.'),
+        );
+        return;
+      }
+      displayArchitecture(info);
+      clack.outro(chalk.green('Done!'));
+      break;
+    }
+  }
+}
+
+// ============================================================
 // Main Interactive Mode
 // ============================================================
 
@@ -660,6 +723,11 @@ export async function interactiveMode(): Promise<void> {
         value: 'endpoint',
         label: 'Endpoint',
         hint: 'BFF Clean Architecture stack',
+      },
+      {
+        value: 'docs',
+        label: 'Docs',
+        hint: 'Project documentation tools',
       },
     ],
   });
@@ -686,6 +754,9 @@ export async function interactiveMode(): Promise<void> {
       break;
     case 'endpoint':
       await endpointFlow();
+      break;
+    case 'docs':
+      await docsInteractiveMode();
       break;
   }
 }

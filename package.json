@@ -16,7 +16,8 @@
   },
   "license": "MIT",
   "bin": {
-    "wlmaker": "./dist/cli.mjs"
+    "wlmaker": "./dist/cli.mjs",
+    "wl": "./dist/cli.mjs"
   },
   "files": [
     "dist"

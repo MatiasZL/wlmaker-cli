@@ -1,10 +1,15 @@
 import { createRequire } from 'module';
+import * as path from 'path';
 import { Command } from 'commander';
 import chalk from 'chalk';
+import * as clack from '@clack/prompts';
 import { createBloc } from './core/create-bloc.js';
 import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
-import { interactiveMode, resolveProject, endpointFlow } from './interactive.js';
+import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode } from './interactive.js';
+import { detectBookDir, serveBook } from './core/docs-serve.js';
+import { discoverCommands, displayCommands } from './core/docs-commands.js';
+import { discoverArchitecture, displayArchitecture } from './core/docs-architecture.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
@@ -113,6 +118,57 @@ program
     if (!project) return;
     await endpointFlow(project);
   });
+
+// Docs command group
+const docsCmd = program
+  .command('docs')
+  .description('Project documentation tools');
+
+docsCmd
+  .command('serve')
+  .description('Start Docusaurus dev server')
+  .option('-d, --dir <path>', 'project root directory', process.cwd())
+  .action(async (options: { dir: string }) => {
+    const bookDir = detectBookDir(options.dir);
+    if (!bookDir) {
+      console.error(chalk.red('No Docusaurus book/ directory found. Run from a monorepo root.'));
+      process.exit(1);
+    }
+    console.log(chalk.cyan(`Serving docs from ${bookDir}`));
+    await serveBook(bookDir);
+  });
+
+docsCmd
+  .command('commands')
+  .description('Show Makefile & melos commands reference')
+  .option('-d, --dir <path>', 'project root directory', process.cwd())
+  .action(async (options: { dir: string }) => {
+    const commands = discoverCommands(options.dir);
+    if (commands.length === 0) {
+      console.log(chalk.yellow('No commands found. Run from a monorepo root.'));
+      return;
+    }
+    console.log(chalk.green(`Found ${commands.length} command(s)\n`));
+    displayCommands(commands);
+  });
+
+docsCmd
+  .command('architecture')
+  .description('Display monorepo architecture tree')
+  .option('-d, --dir <path>', 'project root directory', process.cwd())
+  .action(async (options: { dir: string }) => {
+    const info = discoverArchitecture(options.dir);
+    if (!info) {
+      console.log(chalk.yellow('No monorepo detected. Run from within a Melos monorepo.'));
+      return;
+    }
+    displayArchitecture(info);
+  });
+
+// Default action for `wlmaker docs` (no sub-command) → interactive menu
+docsCmd.action(async () => {
+  await docsInteractiveMode();
+});
 
 // Default action: no subcommand -> interactive mode
 program.action(async () => {
