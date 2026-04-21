@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import * as clack from '@clack/prompts';
 import chalk from 'chalk';
 import {
@@ -664,6 +665,44 @@ export async function docsInteractiveMode(): Promise<void> {
 
   switch (action) {
     case 'serve': {
+      const serveMode = await clack.select({
+        message: 'How do you want to view the docs?',
+        options: [
+          { value: 'local', label: 'Local', hint: 'Start Docusaurus dev server locally' },
+          { value: 'remote', label: 'Remote', hint: 'Open the deployed docs in your browser' },
+        ],
+      });
+
+      if (clack.isCancel(serveMode)) {
+        clack.cancel('Cancelled');
+        return;
+      }
+
+      if (serveMode === 'remote') {
+        const challenge = await clack.text({
+          message: 'Pregunta de seguridad: Qué dice mechi cuando tiene una duda en el diseño?',
+          placeholder: '...',
+          validate: (input) => {
+            const normalized = input.trim().toLowerCase().replace(/[áä]/g, 'a').replace(/[éë]/g, 'e').replace(/[íï]/g, 'i').replace(/[óö]/g, 'o').replace(/[úü]/g, 'u');
+            const expected = 'deja le pregunto a cesita';
+            if (normalized !== expected) {
+              return 'Respuesta incorrecta. Vuelve cuando sepas el lore.';
+            }
+          },
+        });
+
+        if (clack.isCancel(challenge)) {
+          clack.cancel('Cancelled');
+          return;
+        }
+
+        const remoteUrl = 'https://dc-wl-docs.web.app/development_workflow/';
+        clack.log.info(`Opening remote docs: ${chalk.cyan(remoteUrl)}`);
+        execSync(`open "${remoteUrl}"`, { stdio: 'ignore' });
+        clack.outro(chalk.green('Opened remote docs in browser'));
+        return;
+      }
+
       const bookDir = detectBookDir(process.cwd());
       if (!bookDir) {
         clack.outro(
