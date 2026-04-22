@@ -15,7 +15,7 @@ export function detectBookDir(startDir: string): string | undefined {
   const bookDir = path.join(root, 'book');
   if (
     fs.existsSync(bookDir) &&
-    (fs.existsSync(path.join(bookDir, 'docusaurus.config.js')) ||
+    (fs.existsSync(path.join(bookDir, 'docusaurus.config')) ||
       fs.existsSync(path.join(bookDir, 'docusaurus.config.ts')) ||
       fs.existsSync(path.join(bookDir, 'docusaurus.config.mjs')))
   ) {
