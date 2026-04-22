@@ -15,6 +15,7 @@ import { createBloc } from './core/create-bloc.js';
 import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
 import { createEndpoint, type EndpointOptions } from './core/create-endpoint.js';
+import { createEnvVar, discoverAppsWithEnv, discoverVendorsModules, type EnvVarType } from './core/create-env-var.js';
 import { detectDesignSystem } from './core/design-system-analyzer.js';
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
@@ -32,7 +33,7 @@ import {
 
 const SNAKE_CASE_REGEX = /^[a-z][a-z0-9_]*$/;
 
-type CreateType = 'bloc' | 'widget' | 'usecase' | 'endpoint' | 'docs';
+type CreateType = 'bloc' | 'widget' | 'usecase' | 'endpoint' | 'env-var' | 'docs';
 
 export async function resolveProject(): Promise<ProjectInfo | null> {
   const s = clack.spinner();
@@ -696,7 +697,11 @@ export async function docsInteractiveMode(): Promise<void> {
           return;
         }
 
-        const remoteUrl = 'https://dc-wl-docs.web.app/development_workflow/';
+        const remoteUrl = process.env.WL_DOCS_URL;
+        if (!remoteUrl) {
+          clack.outro(chalk.red('Remote docs URL not configured. Set WL_DOCS_URL in your environment.'));
+          return;
+        }
         clack.log.info(`Opening remote docs: ${chalk.cyan(remoteUrl)}`);
         execSync(`open "${remoteUrl}"`, { stdio: 'ignore' });
         clack.outro(chalk.green('Opened remote docs in browser'));
@@ -741,6 +746,136 @@ export async function docsInteractiveMode(): Promise<void> {
 }
 
 // ============================================================
+// Env Var Flow
+// ============================================================
+
+const SCREAMING_SNAKE_REGEX = /^[A-Z][A-Z0-9_]*$/;
+
+export async function envVarFlow(): Promise<void> {
+  // 1. Find monorepo root
+  const monorepoRoot = findMonorepoRoot(process.cwd());
+  if (!monorepoRoot) {
+    clack.outro(chalk.red('Not inside a monorepo. Run from within a Melos monorepo.'));
+    return;
+  }
+
+  // Discover apps
+  const apps = discoverAppsWithEnv(monorepoRoot);
+  if (apps.length === 0) {
+    clack.outro(chalk.red('No apps with env/ directory found in the monorepo.'));
+    return;
+  }
+
+  // 2. Variable name
+  const variableName = await clack.text({
+    message: 'Variable name (SCREAMING_SNAKE_CASE)',
+    placeholder: 'MY_FEATURE_FLAG',
+    validate: (v) => {
+      if (!v.trim()) return 'Name is required';
+      if (!SCREAMING_SNAKE_REGEX.test(v)) return 'Must be SCREAMING_SNAKE_CASE (uppercase, numbers, underscores)';
+    },
+  });
+  if (clack.isCancel(variableName)) { clack.cancel('Cancelled'); return; }
+
+  // 3. Type
+  const dartType = await clack.select({
+    message: 'Variable type',
+    options: [
+      { value: 'String', label: 'String' },
+      { value: 'int', label: 'int' },
+      { value: 'bool', label: 'bool' },
+      { value: 'List<String>', label: 'List<String>' },
+    ],
+  });
+  if (clack.isCancel(dartType)) { clack.cancel('Cancelled'); return; }
+
+  const selectedType = dartType as EnvVarType;
+
+  // 4. Default value (optional)
+  const defaultValue = await clack.text({
+    message: 'Default value (leave empty to skip)',
+    placeholder: selectedType === 'bool' ? 'false' : selectedType === 'int' ? '0' : '',
+    validate: (v) => {
+      if (!v || !v.trim()) return undefined; // allow empty
+      if (selectedType === 'int' && !/^-?\d+$/.test(v)) return 'Must be an integer';
+      if (selectedType === 'bool' && !['true', 'false'].includes(v)) return 'Must be true or false';
+    },
+  });
+  if (clack.isCancel(defaultValue)) { clack.cancel('Cancelled'); return; }
+
+  // 5. Select apps
+  const selectedApps = await clack.multiselect({
+    message: 'Select apps to add the variable to',
+    options: [
+      { value: '__all__', label: 'All apps' },
+      ...apps.map((app) => ({ value: app, label: app })),
+    ],
+    required: true,
+  });
+  if (clack.isCancel(selectedApps)) { clack.cancel('Cancelled'); return; }
+
+  const appsList = (selectedApps as string[]).includes('__all__')
+    ? apps
+    : (selectedApps as string[]);
+
+  // 6. Remote config
+  const includeInRemoteConfig = await clack.confirm({
+    message: 'Add to VendorsModule RemoteConfig defaultValues?',
+    initialValue: true,
+  });
+  if (clack.isCancel(includeInRemoteConfig)) { clack.cancel('Cancelled'); return; }
+
+  // 6b. Which vendors modules?
+  let vendorsTargets: string[] = [];
+  if (includeInRemoteConfig) {
+    const vendorsModules = discoverVendorsModules(monorepoRoot);
+    if (vendorsModules.length > 0) {
+      const vendorsSelection = await clack.multiselect({
+        message: 'Which VendorsModule(s) to update?',
+        options: [
+          { value: '__all__', label: 'All vendors' },
+          ...vendorsModules.map((v) => ({ value: v, label: v })),
+        ],
+        required: true,
+      });
+      if (clack.isCancel(vendorsSelection)) { clack.cancel('Cancelled'); return; }
+      vendorsTargets = (vendorsSelection as string[]).includes('__all__')
+        ? vendorsModules
+        : (vendorsSelection as string[]);
+    }
+  }
+
+  // 7. AppConfig
+  const includeInAppConfig = await clack.confirm({
+    message: 'Add to AppConfig entity and AppConfigModel?',
+    initialValue: true,
+  });
+  if (clack.isCancel(includeInAppConfig)) { clack.cancel('Cancelled'); return; }
+
+  // Generate
+  const genSpinner = clack.spinner();
+  genSpinner.start('Adding environment variable...');
+
+  try {
+    await createEnvVar({
+      monorepoRoot,
+      variableName: variableName as string,
+      dartType: selectedType,
+      defaultValue: (defaultValue as string) || undefined,
+      selectedApps: appsList,
+      vendorsTargets,
+      includeInRemoteConfig: includeInRemoteConfig as boolean,
+      includeInAppConfig: includeInAppConfig as boolean,
+    });
+    genSpinner.stop('Done');
+    clack.outro(chalk.green('Environment variable added!'));
+  } catch (error) {
+    genSpinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+// ============================================================
 // Main Interactive Mode
 // ============================================================
 
@@ -762,6 +897,11 @@ export async function interactiveMode(): Promise<void> {
         value: 'endpoint',
         label: 'Endpoint',
         hint: 'BFF Clean Architecture stack',
+      },
+      {
+        value: 'env-var',
+        label: 'Env Var',
+        hint: 'Add environment variable to monorepo stack',
       },
       {
         value: 'docs',
@@ -793,6 +933,9 @@ export async function interactiveMode(): Promise<void> {
       break;
     case 'endpoint':
       await endpointFlow();
+      break;
+    case 'env-var':
+      await envVarFlow();
       break;
     case 'docs':
       await docsInteractiveMode();

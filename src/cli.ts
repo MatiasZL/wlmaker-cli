@@ -6,7 +6,7 @@ import * as clack from '@clack/prompts';
 import { createBloc } from './core/create-bloc.js';
 import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
-import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode } from './interactive.js';
+import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow } from './interactive.js';
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
 import { discoverArchitecture, displayArchitecture } from './core/docs-architecture.js';
@@ -117,6 +117,14 @@ program
     const project = await resolveProject();
     if (!project) return;
     await endpointFlow(project);
+  });
+
+// Env Var subcommand
+program
+  .command('env-var')
+  .description('Add an environment variable across the Flutter monorepo')
+  .action(async () => {
+    await envVarFlow();
   });
 
 // Docs command group
