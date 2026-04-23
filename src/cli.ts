@@ -6,7 +6,8 @@ import * as clack from '@clack/prompts';
 import { createBloc } from './core/create-bloc.js';
 import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
-import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow } from './interactive.js';
+import { createPage } from './core/create-page.js';
+import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow, pageFlow } from './interactive.js';
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
 import { discoverArchitecture, displayArchitecture } from './core/docs-architecture.js';
@@ -102,6 +103,30 @@ program
           projectRoot: options.dir,
           buildRunner: options.buildRunner,
         });
+      } catch (error) {
+        console.error(chalk.red(`Error: ${error}`));
+        process.exit(1);
+      }
+    },
+  );
+
+// Page subcommand
+program
+  .command('page')
+  .description('Create a new page (GoRoute + View) with barrel updates')
+  .argument('[name]', 'Page name in snake_case (e.g. profile, order_detail)')
+  .option('-p, --path <path>', 'absolute path to the pages directory')
+  .action(
+    async (
+      name: string | undefined,
+      options: { path?: string },
+    ) => {
+      if (!name || !options.path) {
+        await pageFlow(name, options.path);
+        return;
+      }
+      try {
+        await createPage(name, { pagesPath: options.path });
       } catch (error) {
         console.error(chalk.red(`Error: ${error}`));
         process.exit(1);
