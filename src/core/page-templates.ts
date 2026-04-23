@@ -2,7 +2,7 @@ import { pascalCase } from 'change-case';
 
 export function pageTemplate(name: string, packageName: string): string {
   const pascal = pascalCase(name);
-  const routePath = '/' + name.replace(/_/g, '-');
+  const routePath = '/' + name;
 
   const imports = [
     `package:flutter/material.dart`,
