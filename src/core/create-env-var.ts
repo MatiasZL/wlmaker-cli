@@ -132,10 +132,10 @@ function injectIntoJsonFile(
   key: string,
   value: unknown,
   isTemplate: boolean,
-): void {
+): string | null {
   if (!fs.existsSync(filePath)) {
     console.log(chalk.yellow(`  Skipping ${filePath} (not found)`));
-    return;
+    return null;
   }
 
   const content = fs.readFileSync(filePath, 'utf8');
@@ -143,13 +143,14 @@ function injectIntoJsonFile(
 
   if (key in json) {
     console.log(chalk.yellow(`  Key "${key}" already exists in ${path.basename(filePath)}`));
-    return;
+    return null;
   }
 
   json[key] = isTemplate ? `\${${key}}` : value;
 
   fs.writeFileSync(filePath, JSON.stringify(json, null, 2) + '\n');
   console.log(chalk.green(`  Updated ${path.basename(filePath)}`));
+  return filePath;
 }
 
 // ============================================================
@@ -160,21 +161,21 @@ function injectAbstractGetter(
   monorepoRoot: string,
   camelName: string,
   dartType: EnvVarType,
-): void {
+): string | null {
   const packagesDir = path.join(monorepoRoot, 'packages');
-  if (!fs.existsSync(packagesDir)) return;
+  if (!fs.existsSync(packagesDir)) return null;
 
   const envFile = findFileInPackages(packagesDir, 'app_environment.dart');
   if (!envFile) {
     console.log(chalk.yellow('  app_environment.dart not found in any package'));
-    return;
+    return null;
   }
 
   const content = fs.readFileSync(envFile, 'utf8');
   const dedup = `get ${camelName}`;
   if (content.includes(dedup)) {
     console.log(chalk.yellow(`  '${camelName}' already in AppEnvironment`));
-    return;
+    return null;
   }
 
   // Find the last getter line (pattern: "  Type get name;")
@@ -187,7 +188,7 @@ function injectAbstractGetter(
 
   if (!lastGetterMatch) {
     console.log(chalk.yellow('  No getters found in AppEnvironment'));
-    return;
+    return null;
   }
 
   const insertPos = lastGetterMatch.index + lastGetterMatch[0].length;
@@ -196,6 +197,7 @@ function injectAbstractGetter(
   const newContent = content.slice(0, insertPos) + getterLine + content.slice(insertPos);
   fs.writeFileSync(envFile, newContent);
   console.log(chalk.green(`  Injected abstract getter in ${formatPkgPath(monorepoRoot, envFile)}`));
+  return envFile;
 }
 
 // ============================================================
@@ -207,23 +209,25 @@ function injectBuildEnvGetter(
   variableName: string,
   camelName: string,
   dartType: EnvVarType,
-): void {
+): string | null {
   const packagesDir = path.join(monorepoRoot, 'packages');
-  if (!fs.existsSync(packagesDir)) return;
+  if (!fs.existsSync(packagesDir)) return null;
 
   // app_build_environment.dart lives in packages/core/
   const buildEnvFile = findFileInPackages(packagesDir, 'app_build_environment.dart');
   if (!buildEnvFile) {
     console.log(chalk.yellow('  app_build_environment.dart not found in any package'));
-    return;
+    return null;
   }
 
   const code = buildEnvGetterCode(camelName, variableName, dartType);
   try {
     injectMethod(buildEnvFile, 'AppBuildEnvironment', code, `get ${camelName}`);
     console.log(chalk.green(`  Injected build env getter in ${formatPkgPath(monorepoRoot, buildEnvFile)}`));
+    return buildEnvFile;
   } catch (e) {
     console.log(chalk.yellow(`  Skipped: ${(e as Error).message}`));
+    return null;
   }
 }
 
@@ -235,13 +239,13 @@ function injectIntoRemoteConfigDefaults(
   vendorsPath: string,
   camelName: string,
   dartType: EnvVarType,
-): void {
+): string | null {
   const content = fs.readFileSync(vendorsPath, 'utf8');
 
   // Check if already present
   if (content.includes(`'${camelName}'`) || content.includes(`"${camelName}"`)) {
     console.log(chalk.yellow(`  '${camelName}' already in ${path.basename(vendorsPath)}`));
-    return;
+    return null;
   }
 
   // Find the defaultValues map and inject before the closing brace
@@ -249,7 +253,7 @@ function injectIntoRemoteConfigDefaults(
   const match = content.match(defaultValuesRegex);
   if (!match) {
     console.log(chalk.yellow(`  Could not find defaultValues map in ${path.basename(vendorsPath)}`));
-    return;
+    return null;
   }
 
   // Find the closing brace of the map by brace-tracking from the match
@@ -270,7 +274,7 @@ function injectIntoRemoteConfigDefaults(
 
   if (mapEnd === -1) {
     console.log(chalk.yellow(`  Could not find end of defaultValues map`));
-    return;
+    return null;
   }
 
   const valueExpr = dartType === 'List<String>'
@@ -299,6 +303,7 @@ function injectIntoRemoteConfigDefaults(
 
   fs.writeFileSync(vendorsPath, newContent);
   console.log(chalk.green(`  Injected into VendorsModule defaultValues`));
+  return vendorsPath;
 }
 
 // ============================================================
@@ -309,25 +314,24 @@ function injectAppConfigProperty(
   configPath: string,
   camelName: string,
   dartType: EnvVarType,
-): void {
+): string | null {
   const content = fs.readFileSync(configPath, 'utf8');
 
   if (content.includes(`final ${dartTypeForGetter(dartType)} ${camelName}`)) {
     console.log(chalk.yellow(`  '${camelName}' already in AppConfig`));
-    return;
+    return null;
   }
 
   // 1. Inject field declaration before the @override / props getter section
-  // No extra \n at the start — the field goes directly before the @override anchor,
-  // with a \n at the end so the @override starts on its own line.
+  // Insert before the blank line that precedes @override, so the new field
+  // sits right after the last field with a blank line before @override.
   const fieldLine = `  final ${dartTypeForGetter(dartType)} ${camelName};\n`;
   let newContent = content;
 
-  // Find the props getter — fields go right before it
-  const propsMatch = newContent.match(/@override\n\s+List<Object\?>/);
-  if (propsMatch) {
-    const propsPos = newContent.indexOf(propsMatch[0]);
-    newContent = newContent.slice(0, propsPos) + fieldLine + newContent.slice(propsPos);
+  // Find the blank line before @override props getter: "\n\n  @override\n  List<Object?>"
+  const propsSeparator = newContent.search(/\n\n(\s*)@override\n\s+List<Object\?>/);
+  if (propsSeparator !== -1) {
+    newContent = newContent.slice(0, propsSeparator + 1) + fieldLine + newContent.slice(propsSeparator + 1);
   } else {
     // Fallback: inject before class closing brace
     newContent = injectBeforeClassClose(newContent, 'AppConfig', `  final ${dartTypeForGetter(dartType)} ${camelName};`);
@@ -341,6 +345,7 @@ function injectAppConfigProperty(
 
   fs.writeFileSync(configPath, newContent);
   console.log(chalk.green(`  Injected into AppConfig entity`));
+  return configPath;
 }
 
 // ============================================================
@@ -351,21 +356,21 @@ function injectAppConfigModelProperty(
   modelPath: string,
   camelName: string,
   dartType: EnvVarType,
-): void {
+): string | null {
   const content = fs.readFileSync(modelPath, 'utf8');
 
   if (content.includes(`final ${dartTypeForGetter(dartType)} ${camelName}`)) {
     console.log(chalk.yellow(`  '${camelName}' already in AppConfigModel`));
-    return;
+    return null;
   }
 
   // 1. Inject field with @JsonKey annotation before static methods
-  // No leading \n — the field goes directly before the anchor (which already has a blank line
-  // separating it from the last field). The \n at the end keeps that blank line separation.
+  // Leading \n creates a blank line separating from the last field.
+  // Trailing \n preserves the blank line before static methods.
   const jsonKey = appConfigModelJsonKey(camelName, dartType);
   const fieldLines = (jsonKey
-    ? `  ${jsonKey}\n  final ${dartTypeForGetter(dartType)} ${camelName};\n`
-    : `  final ${dartTypeForGetter(dartType)} ${camelName};\n`);
+    ? `\n  ${jsonKey}\n  final ${dartTypeForGetter(dartType)} ${camelName};\n`
+    : `\n  final ${dartTypeForGetter(dartType)} ${camelName};\n`);
 
   let newContent = content;
 
@@ -375,9 +380,7 @@ function injectAppConfigModelProperty(
   const staticPos = newContent.search(/\n\s+static\s/);
   const factoryPos = newContent.search(/\n\s+factory\s+AppConfigModel/);
   let insertAnchor = -1;
-  if (staticPos !== -1 && factoryPos !== -1) {
-    insertAnchor = Math.min(staticPos, factoryPos);
-  } else if (staticPos !== -1) {
+  if (staticPos !== -1) {
     insertAnchor = staticPos;
   } else if (factoryPos !== -1) {
     insertAnchor = factoryPos;
@@ -401,6 +404,7 @@ function injectAppConfigModelProperty(
 
   fs.writeFileSync(modelPath, newContent);
   console.log(chalk.green(`  Injected into AppConfigModel`));
+  return modelPath;
 }
 
 // ============================================================
@@ -750,6 +754,7 @@ export async function createEnvVar(options: EnvVarOptions): Promise<void> {
   } = options;
 
   const camelName = screamingSnakeToCamel(variableName);
+  const modifiedFiles: string[] = [];
 
   console.log(chalk.bold(`\nAdding environment variable: ${chalk.cyan(variableName)}\n`));
 
@@ -767,17 +772,20 @@ export async function createEnvVar(options: EnvVarOptions): Promise<void> {
     ];
 
     for (const { name, isTemplate } of files) {
-      injectIntoJsonFile(path.join(appEnvDir, name), variableName, jsonValue, isTemplate);
+      const modified = injectIntoJsonFile(path.join(appEnvDir, name), variableName, jsonValue, isTemplate);
+      if (modified) modifiedFiles.push(modified);
     }
   }
 
   // PASO 2: AppEnvironment abstract class
   spinner('PASO 2: Injecting into AppEnvironment');
-  injectAbstractGetter(monorepoRoot, camelName, dartType);
+  const envFile = injectAbstractGetter(monorepoRoot, camelName, dartType);
+  if (envFile) modifiedFiles.push(envFile);
 
   // PASO 3: AppBuildEnvironment implementation
   spinner('PASO 3: Injecting into AppBuildEnvironment');
-  injectBuildEnvGetter(monorepoRoot, variableName, camelName, dartType);
+  const buildEnvFile = injectBuildEnvGetter(monorepoRoot, variableName, camelName, dartType);
+  if (buildEnvFile) modifiedFiles.push(buildEnvFile);
 
   // PASO 4: VendorsModule RemoteConfig defaultValues
   if (includeInRemoteConfig) {
@@ -787,7 +795,8 @@ export async function createEnvVar(options: EnvVarOptions): Promise<void> {
       const vendorsPath = findFileRecursive(pkgDir, 'vendors_module.dart');
       if (vendorsPath) {
         console.log(chalk.cyan(`  → ${pkgName}/vendors_module.dart`));
-        injectIntoRemoteConfigDefaults(vendorsPath, camelName, dartType);
+        const modified = injectIntoRemoteConfigDefaults(vendorsPath, camelName, dartType);
+        if (modified) modifiedFiles.push(modified);
       } else {
         console.log(chalk.yellow(`  vendors_module.dart not found in ${pkgName}`));
       }
@@ -799,7 +808,8 @@ export async function createEnvVar(options: EnvVarOptions): Promise<void> {
     spinner('PASO 5: Injecting into AppConfig entity');
     const configPath = findAppConfigFile(monorepoRoot);
     if (configPath) {
-      injectAppConfigProperty(configPath, camelName, dartType);
+      const modified = injectAppConfigProperty(configPath, camelName, dartType);
+      if (modified) modifiedFiles.push(modified);
     } else {
       console.log(chalk.yellow('  app_config.dart not found, skipping AppConfig'));
     }
@@ -808,7 +818,8 @@ export async function createEnvVar(options: EnvVarOptions): Promise<void> {
     spinner('PASO 6: Injecting into AppConfigModel');
     const modelPath = findAppConfigModelFile(monorepoRoot);
     if (modelPath) {
-      injectAppConfigModelProperty(modelPath, camelName, dartType);
+      const modified = injectAppConfigModelProperty(modelPath, camelName, dartType);
+      if (modified) modifiedFiles.push(modified);
     } else {
       console.log(chalk.yellow('  app_config_model.dart not found, skipping AppConfigModel'));
     }
@@ -816,12 +827,16 @@ export async function createEnvVar(options: EnvVarOptions): Promise<void> {
 
   console.log(chalk.green('\nEnvironment variable added successfully!'));
 
-  // Run melos format to fix formatting on modified files
-  spinner('Running melos format...');
-  try {
-    execSync('melos format', { cwd: monorepoRoot, stdio: 'pipe' });
-    console.log(chalk.green('  melos format completed'));
-  } catch {
-    console.log(chalk.yellow('  melos format failed (you may need to run it manually)'));
+  // Run dart format only on modified .dart files
+  const dartFiles = modifiedFiles.filter((f) => f.endsWith('.dart'));
+  if (dartFiles.length > 0) {
+    spinner('Running dart format on modified files...');
+    try {
+      const fileList = dartFiles.join(' ');
+      execSync(`dart format ${fileList}`, { cwd: monorepoRoot, stdio: 'pipe' });
+      console.log(chalk.green(`  Formatted ${dartFiles.length} file(s)`));
+    } catch {
+      console.log(chalk.yellow('  dart format failed (you may need to run it manually)'));
+    }
   }
 }
