@@ -17,6 +17,7 @@ import { createUseCase } from './core/create-usecase.js';
 import { createEndpoint, type EndpointOptions } from './core/create-endpoint.js';
 import { createPage } from './core/create-page.js';
 import { createEnvVar, discoverAppsWithEnv, discoverVendorsModules, type EnvVarType } from './core/create-env-var.js';
+import { createPackage } from './core/create-package.js';
 import { detectDesignSystem } from './core/design-system-analyzer.js';
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
@@ -34,7 +35,7 @@ import {
 
 const SNAKE_CASE_REGEX = /^[a-z][a-z0-9_]*$/;
 
-type CreateType = 'bloc' | 'widget' | 'usecase' | 'page' | 'endpoint' | 'env-var' | 'docs';
+type CreateType = 'bloc' | 'widget' | 'usecase' | 'page' | 'endpoint' | 'env-var' | 'package' | 'docs';
 
 export async function resolveProject(): Promise<ProjectInfo | null> {
   const s = clack.spinner();
@@ -779,6 +780,51 @@ export async function endpointFlow(): Promise<void> {
 }
 
 // ============================================================
+// Package Flow
+// ============================================================
+
+export async function packageFlow(): Promise<void> {
+  const monorepoRoot = findMonorepoRoot(process.cwd());
+  if (!monorepoRoot) {
+    clack.outro(chalk.red('Not inside a monorepo. Run from within a Melos monorepo.'));
+    return;
+  }
+
+  clack.log.info(`Monorepo: ${chalk.cyan(path.relative(os.homedir(), monorepoRoot))}`);
+
+  const name = await clack.text({
+    message: 'Package name (snake_case)',
+    placeholder: 'e.g. rewards, promotions, notifications',
+    validate: (value) => {
+      if (!value || !value.trim()) return 'Name is required';
+      if (!SNAKE_CASE_REGEX.test(value)) return 'Must be snake_case (lowercase, digits, underscores)';
+      const pkgDir = path.join(monorepoRoot, 'packages', value);
+      if (fs.existsSync(pkgDir)) return `packages/${value} already exists`;
+    },
+  });
+
+  if (clack.isCancel(name)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const genSpinner = clack.spinner();
+  genSpinner.start('Creating package...');
+
+  try {
+    await createPackage({
+      monorepoRoot,
+      packageName: name as string,
+    });
+    genSpinner.stop('Package created');
+    clack.outro(chalk.green('Done!'));
+  } catch (error) {
+    genSpinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+// ============================================================
 // Docs Flow
 // ============================================================
 
@@ -1039,6 +1085,11 @@ export async function interactiveMode(): Promise<void> {
         hint: 'BFF Clean Architecture stack',
       },
       {
+        value: 'package',
+        label: 'Package',
+        hint: 'Create a new package in the monorepo',
+      },
+      {
         value: 'env-var',
         label: 'Env Var',
         hint: 'Add environment variable to monorepo stack',
@@ -1076,6 +1127,9 @@ export async function interactiveMode(): Promise<void> {
       break;
     case 'endpoint':
       await endpointFlow();
+      break;
+    case 'package':
+      await packageFlow();
       break;
     case 'env-var':
       await envVarFlow();
