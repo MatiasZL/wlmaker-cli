@@ -7,7 +7,8 @@ import { createBloc } from './core/create-bloc.js';
 import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
 import { createPage } from './core/create-page.js';
-import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow, pageFlow } from './interactive.js';
+import { createPackage } from './core/create-package.js';
+import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow, pageFlow, packageFlow } from './interactive.js';
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
 import { discoverArchitecture, displayArchitecture } from './core/docs-architecture.js';
@@ -142,6 +143,14 @@ program
     const project = await resolveProject();
     if (!project) return;
     await endpointFlow(project);
+  });
+
+// Package subcommand
+program
+  .command('package')
+  .description('Create a new package in the monorepo')
+  .action(async () => {
+    await packageFlow();
   });
 
 // Env Var subcommand
