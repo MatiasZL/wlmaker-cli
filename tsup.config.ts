@@ -5,7 +5,7 @@ import { resolve } from 'path';
 dotenvConfig({ path: resolve(process.cwd(), '.env') });
 
 export default defineConfig({
-  entry: ['src/cli.ts'],
+  entry: ['src/cli.ts', 'src/postinstall.ts'],
   format: ['esm'],
   target: 'node18',
   outDir: 'dist',
