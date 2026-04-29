@@ -12,6 +12,8 @@ import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, env
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
 import { discoverArchitecture, displayArchitecture } from './core/docs-architecture.js';
+import { runMcpServer } from './mcp-server.js';
+import { installMcpServer } from './mcp-install.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
@@ -140,9 +142,7 @@ program
   .command('endpoint')
   .description('Generate Clean Architecture stack for a BFF endpoint')
   .action(async () => {
-    const project = await resolveProject();
-    if (!project) return;
-    await endpointFlow(project);
+    await endpointFlow();
   });
 
 // Package subcommand
@@ -205,6 +205,21 @@ docsCmd
       return;
     }
     displayArchitecture(info);
+  });
+
+// MCP Subcommands
+program
+  .command('mcp')
+  .description('Start the wlmaker MCP server (used automatically by AI clients)')
+  .action(async () => {
+    await runMcpServer();
+  });
+
+program
+  .command('mcp-install')
+  .description('Manually install/register the wlmaker MCP server into compatible clients (Claude, Cursor, Cline)')
+  .action(async () => {
+    await installMcpServer();
   });
 
 // Default action for `wlmaker docs` (no sub-command) → interactive menu
