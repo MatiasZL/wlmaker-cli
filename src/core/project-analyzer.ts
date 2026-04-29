@@ -94,6 +94,81 @@ export function discoverPackages(monorepoRoot: string): ProjectInfo[] {
   return projects.sort((a, b) => a.projectName.localeCompare(b.projectName));
 }
 
+export function discoverCollaborativeFeatures(
+  monorepoRoot: string,
+): ProjectInfo[] {
+  const collabDir = path.join(monorepoRoot, 'packages', 'collaborative');
+  if (!fs.existsSync(collabDir)) return [];
+
+  const projects: ProjectInfo[] = [];
+  const entries = fs.readdirSync(collabDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const candidate = path.join(collabDir, entry.name);
+    if (!fs.existsSync(path.join(candidate, 'pubspec.yaml'))) continue;
+
+    const project = analyzeProject(candidate);
+    if (project) {
+      projects.push(project);
+    }
+  }
+
+  return projects.sort((a, b) => a.projectName.localeCompare(b.projectName));
+}
+
+export interface WorkspaceDependencyVersions {
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+  dependencyOverrides: Record<string, string>;
+}
+
+const REFERENCE_PACKAGES = ['packages/core', 'packages/app_base', 'packages/design_system'];
+
+export function resolveWorkspaceVersions(
+  monorepoRoot: string,
+): WorkspaceDependencyVersions {
+  const merged: WorkspaceDependencyVersions = {
+    dependencies: {},
+    devDependencies: {},
+    dependencyOverrides: {},
+  };
+
+  for (const relPath of REFERENCE_PACKAGES) {
+    const pubspecPath = path.join(monorepoRoot, relPath, 'pubspec.yaml');
+    if (!fs.existsSync(pubspecPath)) continue;
+
+    const content = fs.readFileSync(pubspecPath, 'utf8');
+    const pubspec = YAML.parse(content);
+
+    if (pubspec?.dependencies) {
+      for (const [name, version] of Object.entries(pubspec.dependencies)) {
+        if (typeof version === 'string') {
+          merged.dependencies[name] = version;
+        }
+      }
+    }
+
+    if (pubspec?.dev_dependencies) {
+      for (const [name, version] of Object.entries(pubspec.dev_dependencies)) {
+        if (typeof version === 'string') {
+          merged.devDependencies[name] = version;
+        }
+      }
+    }
+
+    if (pubspec?.dependency_overrides) {
+      for (const [name, version] of Object.entries(pubspec.dependency_overrides)) {
+        if (typeof version === 'string') {
+          merged.dependencyOverrides[name] = version;
+        }
+      }
+    }
+  }
+
+  return merged;
+}
+
 const IGNORED_DIRS = new Set([
   'node_modules',
   '.dart_tool',
