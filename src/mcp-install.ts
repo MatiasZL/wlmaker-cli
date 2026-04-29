@@ -1,11 +1,21 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { fileURLToPath } from 'url';
 
 export async function installMcpServer() {
   const homeDir = os.homedir();
   const isMac = process.platform === 'darwin';
   const isWin = process.platform === 'win32';
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const cliPath = path.resolve(__dirname, 'cli.mjs');
+
+  const wlmakerConfig = {
+    command: process.execPath,
+    args: [cliPath, 'mcp'],
+  };
 
   // Config file paths for different clients
   const configs: { name: string; paths: string[] }[] = [
@@ -16,6 +26,14 @@ export async function installMcpServer() {
         : isWin
         ? [path.join(homeDir, 'AppData/Roaming/Claude/claude_desktop_config.json')]
         : [],
+    },
+    {
+      name: 'Claude Code',
+      paths: [path.join(homeDir, '.claude.json')],
+    },
+    {
+      name: 'Gemini CLI',
+      paths: [path.join(homeDir, '.gemini/settings.json')],
     },
     {
       name: 'Cursor',
@@ -50,10 +68,7 @@ export async function installMcpServer() {
           const json = JSON.parse(content);
           
           json.mcpServers = json.mcpServers || {};
-          json.mcpServers['wlmaker-cli'] = {
-            command: 'npx',
-            args: ['wlmaker', 'mcp'],
-          };
+          json.mcpServers['wlmaker-cli'] = wlmakerConfig;
 
           fs.writeFileSync(configPath, JSON.stringify(json, null, 2));
           console.log(`✅ Successfully added wlmaker-cli to ${client.name} configuration.`);
@@ -70,10 +85,7 @@ export async function installMcpServer() {
     console.log('You can manually add the following configuration to your client:');
     console.log(JSON.stringify({
       mcpServers: {
-        'wlmaker-cli': {
-          command: 'npx',
-          args: ['wlmaker', 'mcp']
-        }
+        'wlmaker-cli': wlmakerConfig
       }
     }, null, 2));
   }
