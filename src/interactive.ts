@@ -8,6 +8,7 @@ import {
   analyzeProject,
   findMonorepoRoot,
   discoverPackages,
+  discoverCollaborativeFeatures,
   discoverProjects,
   type ProjectInfo,
 } from './core/project-analyzer.js';
@@ -18,6 +19,10 @@ import { createEndpoint, type EndpointOptions } from './core/create-endpoint.js'
 import { createPage } from './core/create-page.js';
 import { createEnvVar, discoverAppsWithEnv, discoverVendorsModules, type EnvVarType } from './core/create-env-var.js';
 import { createPackage } from './core/create-package.js';
+import { createCollaborativeFeature } from './core/collaborative/create-collaborative-feature.js';
+import { createCollaborativePage } from './core/collaborative/create-collaborative-page.js';
+import { createCollaborativeBloc } from './core/collaborative/create-collaborative-bloc.js';
+import { createCollaborativeEndpoint } from './core/collaborative/create-collaborative-endpoint.js';
 import { detectDesignSystem } from './core/design-system-analyzer.js';
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
@@ -35,7 +40,7 @@ import {
 
 const SNAKE_CASE_REGEX = /^[a-z][a-z0-9_]*$/;
 
-type CreateType = 'bloc' | 'widget' | 'usecase' | 'page' | 'endpoint' | 'env-var' | 'package' | 'docs';
+type CreateType = 'bloc' | 'widget' | 'usecase' | 'page' | 'endpoint' | 'env-var' | 'package' | 'docs' | 'collaborative';
 
 export async function resolveProject(): Promise<ProjectInfo | null> {
   const s = clack.spinner();
@@ -1057,6 +1062,272 @@ export async function envVarFlow(): Promise<void> {
 }
 
 // ============================================================
+// Collaborative Flow
+// ============================================================
+
+type CollaborativeAction = 'feature' | 'page' | 'bloc' | 'endpoint';
+
+export async function collaborativeFlow(): Promise<void> {
+  const monorepoRoot = findMonorepoRoot(process.cwd());
+  if (!monorepoRoot) {
+    clack.outro(chalk.red('Not inside a monorepo. Run from within a Melos monorepo.'));
+    return;
+  }
+
+  clack.log.info(`Monorepo: ${chalk.cyan(path.relative(os.homedir(), monorepoRoot))}`);
+
+  const action = await clack.select({
+    message: 'What do you want to create in collaborative?',
+    options: [
+      { value: 'feature', label: 'Feature', hint: 'Complete feature with DI, BLoC, Page, Endpoint stack' },
+      { value: 'page', label: 'Page + View', hint: 'Add a new page/view to an existing feature' },
+      { value: 'bloc', label: 'BLoC', hint: 'Add a new BLoC to an existing feature' },
+      { value: 'endpoint', label: 'Endpoint', hint: 'Add endpoint stack (entity, model, repo, usecase) to an existing feature' },
+    ],
+  });
+
+  if (clack.isCancel(action)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  switch (action as CollaborativeAction) {
+    case 'feature':
+      await collaborativeFeatureFlow(monorepoRoot);
+      break;
+    case 'page':
+      await collaborativePageFlow(monorepoRoot);
+      break;
+    case 'bloc':
+      await collaborativeBlocFlow(monorepoRoot);
+      break;
+    case 'endpoint':
+      await collaborativeEndpointFlow(monorepoRoot);
+      break;
+  }
+}
+
+async function collaborativeFeatureFlow(monorepoRoot: string): Promise<void> {
+  const name = await clack.text({
+    message: 'Feature name (snake_case, e.g. feature_orders)',
+    placeholder: 'feature_orders',
+    validate: (value) => {
+      if (!value || !value.trim()) return 'Name is required';
+      if (!SNAKE_CASE_REGEX.test(value)) return 'Must be snake_case';
+      const pkgDir = path.join(monorepoRoot, 'packages', 'collaborative', value);
+      if (fs.existsSync(pkgDir)) return `packages/collaborative/${value} already exists`;
+    },
+  });
+
+  if (clack.isCancel(name)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const genSpinner = clack.spinner();
+  genSpinner.start('Creating collaborative feature...');
+
+  try {
+    await createCollaborativeFeature({
+      monorepoRoot,
+      featureName: name as string,
+    });
+    genSpinner.stop('Feature created');
+    clack.outro(chalk.green('Done!'));
+  } catch (error) {
+    genSpinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+async function collaborativePageFlow(monorepoRoot: string): Promise<void> {
+  const features = discoverCollaborativeFeatures(monorepoRoot);
+  if (features.length === 0) {
+    clack.outro(chalk.red('No collaborative features found. Create one first.'));
+    return;
+  }
+
+  const selectedFeature = await clack.select({
+    message: 'Select feature',
+    options: features.map((f) => ({
+      value: f.projectRoot,
+      label: f.projectName,
+      hint: path.relative(monorepoRoot, f.projectRoot),
+    })),
+  });
+
+  if (clack.isCancel(selectedFeature)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const pageName = await clack.text({
+    message: 'Page name (snake_case)',
+    placeholder: 'e.g. profile, order_detail',
+    validate: (value) => {
+      if (!value || !value.trim()) return 'Name is required';
+      if (!SNAKE_CASE_REGEX.test(value)) return 'Must be snake_case';
+    },
+  });
+
+  if (clack.isCancel(pageName)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const genSpinner = clack.spinner();
+  genSpinner.start('Creating page...');
+
+  try {
+    await createCollaborativePage({
+      featurePath: selectedFeature as string,
+      pageName: pageName as string,
+    });
+    genSpinner.stop('Page created');
+    clack.outro(chalk.green('Done!'));
+  } catch (error) {
+    genSpinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+async function collaborativeBlocFlow(monorepoRoot: string): Promise<void> {
+  const features = discoverCollaborativeFeatures(monorepoRoot);
+  if (features.length === 0) {
+    clack.outro(chalk.red('No collaborative features found. Create one first.'));
+    return;
+  }
+
+  const selectedFeature = await clack.select({
+    message: 'Select feature',
+    options: features.map((f) => ({
+      value: f.projectRoot,
+      label: f.projectName,
+      hint: path.relative(monorepoRoot, f.projectRoot),
+    })),
+  });
+
+  if (clack.isCancel(selectedFeature)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const blocName = await clack.text({
+    message: 'BLoC name (snake_case)',
+    placeholder: 'e.g. user_login',
+    validate: (value) => {
+      if (!value || !value.trim()) return 'Name is required';
+      if (!SNAKE_CASE_REGEX.test(value)) return 'Must be snake_case';
+    },
+  });
+
+  if (clack.isCancel(blocName)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const genSpinner = clack.spinner();
+  genSpinner.start('Creating BLoC...');
+
+  try {
+    await createCollaborativeBloc({
+      featurePath: selectedFeature as string,
+      blocName: blocName as string,
+    });
+    genSpinner.stop('BLoC created');
+    clack.outro(chalk.green('Done!'));
+  } catch (error) {
+    genSpinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+async function collaborativeEndpointFlow(monorepoRoot: string): Promise<void> {
+  const features = discoverCollaborativeFeatures(monorepoRoot);
+  if (features.length === 0) {
+    clack.outro(chalk.red('No collaborative features found. Create one first.'));
+    return;
+  }
+
+  const selectedFeature = await clack.select({
+    message: 'Select feature',
+    options: features.map((f) => ({
+      value: f.projectRoot,
+      label: f.projectName,
+      hint: path.relative(monorepoRoot, f.projectRoot),
+    })),
+  });
+
+  if (clack.isCancel(selectedFeature)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const featurePath = selectedFeature as string;
+  const featureName = path.basename(featurePath);
+
+  // HTTP Method
+  const httpMethod = await clack.select({
+    message: 'HTTP Method',
+    options: [
+      { value: 'GET', label: 'GET' },
+      { value: 'POST', label: 'POST' },
+      { value: 'PUT', label: 'PUT' },
+      { value: 'PATCH', label: 'PATCH' },
+      { value: 'DELETE', label: 'DELETE' },
+    ],
+  });
+  if (clack.isCancel(httpMethod)) { clack.cancel('Cancelled'); return; }
+
+  // Endpoint path
+  const endpointPath = await clack.text({
+    message: 'Endpoint path (e.g. /items/{id})',
+    placeholder: '/api/items/{id}',
+    validate: (v) => { if (!v.trim()) return 'Path is required'; },
+  });
+  if (clack.isCancel(endpointPath)) { clack.cancel('Cancelled'); return; }
+
+  // UseCase name
+  const methodLower = (httpMethod as string).toLowerCase();
+  const pathSegments = (endpointPath as string)
+    .replace(/^\//, '')
+    .split('/')
+    .filter((s: string) => !s.startsWith('{'));
+  const inferredName = pathSegments.length > 0
+    ? `${methodLower}_${pathSegments.join('_')}`
+    : `${methodLower}_data`;
+
+  const useCaseName = await clack.text({
+    message: 'UseCase name (snake_case)',
+    placeholder: inferredName,
+    initialValue: inferredName,
+    validate: (v) => {
+      if (!v.trim()) return 'Name is required';
+      if (!SNAKE_CASE_REGEX.test(v)) return 'Must be snake_case';
+    },
+  });
+  if (clack.isCancel(useCaseName)) { clack.cancel('Cancelled'); return; }
+
+  const genSpinner = clack.spinner();
+  genSpinner.start('Generating endpoint stack...');
+
+  try {
+    await createCollaborativeEndpoint({
+      featurePath,
+      featureName,
+      httpMethod: httpMethod as 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH',
+      endpointPath: endpointPath as string,
+      useCaseName: useCaseName as string,
+    });
+    genSpinner.stop('Endpoint generated');
+    clack.outro(chalk.green('Done!'));
+  } catch (error) {
+    genSpinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+// ============================================================
 // Main Interactive Mode
 // ============================================================
 
@@ -1093,6 +1364,11 @@ export async function interactiveMode(): Promise<void> {
         value: 'env-var',
         label: 'Env Var',
         hint: 'Add environment variable to monorepo stack',
+      },
+      {
+        value: 'collaborative',
+        label: 'Collaborative',
+        hint: 'Generate collaborative feature / page / bloc / endpoint',
       },
       {
         value: 'docs',
@@ -1133,6 +1409,9 @@ export async function interactiveMode(): Promise<void> {
       break;
     case 'env-var':
       await envVarFlow();
+      break;
+    case 'collaborative':
+      await collaborativeFlow();
       break;
     case 'docs':
       await docsInteractiveMode();
