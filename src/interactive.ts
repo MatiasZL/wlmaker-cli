@@ -23,6 +23,9 @@ import { createCollaborativeFeature } from './core/collaborative/create-collabor
 import { createCollaborativePage } from './core/collaborative/create-collaborative-page.js';
 import { createCollaborativeBloc } from './core/collaborative/create-collaborative-bloc.js';
 import { createCollaborativeEndpoint } from './core/collaborative/create-collaborative-endpoint.js';
+import { createApp, type CreateAppOptions } from './core/create-app.js';
+import { createAppType, editAppType, parseAppTypes, discoverExistingLocales, countryToEnumName } from './core/create-app-type.js';
+import { SUPPORTED_COUNTRIES } from './core/app-type-constants.js';
 import { detectDesignSystem } from './core/design-system-analyzer.js';
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
@@ -40,7 +43,7 @@ import {
 
 const SNAKE_CASE_REGEX = /^[a-z][a-z0-9_]*$/;
 
-type CreateType = 'bloc' | 'widget' | 'usecase' | 'page' | 'endpoint' | 'env-var' | 'package' | 'docs' | 'collaborative';
+type CreateType = 'bloc' | 'widget' | 'usecase' | 'page' | 'endpoint' | 'env-var' | 'package' | 'app' | 'docs' | 'collaborative';
 
 export async function resolveProject(): Promise<ProjectInfo | null> {
   const s = clack.spinner();
@@ -1328,6 +1331,464 @@ async function collaborativeEndpointFlow(monorepoRoot: string): Promise<void> {
 }
 
 // ============================================================
+// App Flow
+// ============================================================
+
+type AppAction = 'new-app' | 'app-type' | 'change-splash';
+
+export async function changeSplashColorFlow(monorepoRoot: string): Promise<void> {
+  const appsDir = path.join(monorepoRoot, 'apps');
+  if (!fs.existsSync(appsDir)) {
+    clack.outro(chalk.red('No apps directory found.'));
+    return;
+  }
+
+  const apps = fs
+    .readdirSync(appsDir, { withFileTypes: true })
+    .filter(d => d.isDirectory())
+    .filter(d => d.name !== 'widgetbook')
+    .filter(d => fs.existsSync(path.join(appsDir, d.name, 'pubspec.yaml')))
+    .map(d => d.name)
+    .sort();
+
+  if (apps.length === 0) {
+    clack.outro(chalk.red('No apps found in the monorepo.'));
+    return;
+  }
+
+  const selectedApp = await clack.select({
+    message: 'Select app',
+    options: apps.map(a => ({ value: a, label: a })),
+  });
+  if (clack.isCancel(selectedApp)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const pubspecPath = path.join(appsDir, selectedApp as string, 'pubspec.yaml');
+  const pubspecContent = fs.readFileSync(pubspecPath, 'utf-8');
+
+  const colorMatch = pubspecContent.match(/flutter_native_splash:\s*\n\s*color:\s*["']?(#[0-9A-Fa-f]{6})["']?/);
+  const currentColor = colorMatch ? colorMatch[1] : '#000000';
+
+  clack.log.info(`Current splash color: ${chalk.cyan(currentColor)}`);
+
+  const newColor = await clack.text({
+    message: 'New splash color (hex)',
+    placeholder: currentColor,
+    validate: (v) => {
+      const val = (v ?? '').trim();
+      if (!val) return 'Color is required';
+      if (!/^#[0-9A-Fa-f]{6}$/.test(val)) return 'Must be a valid hex color (e.g. #FF0000)';
+    },
+  });
+  if (clack.isCancel(newColor)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const color = (newColor as string).trim().toUpperCase();
+
+  console.log('');
+  clack.log.info(`App:   ${chalk.cyan(selectedApp)}`);
+  clack.log.info(`Color: ${chalk.cyan(currentColor)} → ${chalk.cyan(color)}`);
+  console.log('');
+
+  const confirmChange = await clack.confirm({
+    message: 'Update splash color?',
+    initialValue: true,
+  });
+  if (clack.isCancel(confirmChange) || !confirmChange) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const splashSection = pubspecContent.match(/flutter_native_splash:[\s\S]*?(?=\n[a-z]|\n*$)/);
+  if (!splashSection) {
+    clack.outro(chalk.red('No flutter_native_splash section found in pubspec.yaml.'));
+    return;
+  }
+
+  let updated = pubspecContent;
+  const splashRegex = /(flutter_native_splash:\s*\n(?:.*\n)*?\s*color:\s*["']?)#[0-9A-Fa-f]{6}(["']?)/g;
+  updated = updated.replace(splashRegex, `$1${color}$2`);
+
+  fs.writeFileSync(pubspecPath, updated);
+
+  const spinner = clack.spinner();
+  spinner.start('Generating splash screens...');
+
+  try {
+    execSync('dart run flutter_native_splash:create', {
+      cwd: path.join(appsDir, selectedApp as string),
+      stdio: 'pipe',
+    });
+    spinner.stop('Splash screens generated!');
+    clack.outro(chalk.green('Done!'));
+  } catch {
+    spinner.stop('Failed to generate splash screens');
+    clack.log.warn(chalk.yellow('Color updated in pubspec.yaml but splash generation failed.'));
+    clack.log.info(`Run manually: ${chalk.cyan(`cd apps/${selectedApp} && make splash`)}`);
+  }
+}
+
+export async function appFlow(): Promise<void> {
+  const monorepoRoot = findMonorepoRoot(process.cwd());
+  if (!monorepoRoot) {
+    clack.outro(chalk.red('Not inside a monorepo. Run from within a Melos monorepo.'));
+    return;
+  }
+
+  clack.log.info(`Monorepo: ${chalk.cyan(path.relative(os.homedir(), monorepoRoot))}`);
+
+  const action = await clack.select({
+    message: 'What do you want to do in App?',
+    options: [
+      { value: 'new-app', label: 'New App', hint: 'Create a new app in the monorepo' },
+      { value: 'app-type', label: 'App Type', hint: 'Manage AppType countries in localization' },
+      { value: 'change-splash', label: 'Change Splash Color', hint: 'Update native splash screen color' },
+    ],
+  });
+
+  if (clack.isCancel(action)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  switch (action as AppAction) {
+    case 'new-app':
+      await newAppFlow(monorepoRoot);
+      break;
+    case 'app-type':
+      await appTypeFlow(monorepoRoot);
+      break;
+    case 'change-splash':
+      await changeSplashColorFlow(monorepoRoot);
+      break;
+  }
+}
+
+async function newAppFlow(monorepoRoot: string): Promise<void> {
+  const appName = await clack.text({
+    message: 'App name (cc_brand, e.g., co_jumbo)',
+    placeholder: 'co_jumbo',
+    validate: (v) => {
+      const val = v ?? '';
+      if (!val.trim()) return 'App name is required';
+      if (!/^[a-z]{2}_[a-z][a-z0-9]*$/.test(val.trim())) return 'Must follow pattern: cc_brand (e.g., co_jumbo, ar_disco, br_prezunic)';
+    },
+  });
+  if (clack.isCancel(appName)) { clack.cancel('Cancelled'); return; }
+
+  const appNameStr = (appName as string).trim();
+  const underscoreIdx = appNameStr.indexOf('_');
+  const countryCodeLower = appNameStr.substring(0, underscoreIdx);
+  const brand = appNameStr.substring(underscoreIdx + 1);
+  const countryCode = countryCodeLower.toUpperCase();
+
+  const brandDisplayName = await clack.text({
+    message: 'Brand display name (e.g., Jumbo)',
+    placeholder: brand.charAt(0).toUpperCase() + brand.slice(1),
+    validate: (v) => {
+      const val = v ?? '';
+      if (!val.trim()) return 'Brand display name is required';
+      if (!/^[a-zA-ZÀ-ÿ\s]+$/.test(val.trim())) return 'Only letters and spaces allowed';
+    },
+  });
+  if (clack.isCancel(brandDisplayName)) { clack.cancel('Cancelled'); return; }
+
+  const appTypePath = path.join(
+    monorepoRoot, 'packages', 'localization', 'lib', 'enum', 'app_type.dart',
+  );
+
+  let appType: string | undefined;
+  while (!appType) {
+    const existingTypes = parseAppTypes(appTypePath);
+
+    const appTypeOption = await clack.select({
+      message: 'AppType (from localization package)',
+      options: [
+        ...existingTypes.map(t => ({
+          value: t.name,
+          label: t.name.charAt(0).toUpperCase() + t.name.slice(1),
+          hint: t.defaultLocale,
+        })),
+        { value: '__create_new__', label: '+ Crear nuevo AppType', hint: 'No encuentras tu país?' },
+      ],
+    });
+    if (clack.isCancel(appTypeOption)) { clack.cancel('Cancelled'); return; }
+
+    if (appTypeOption === '__create_new__') {
+      await newAppTypeFlow(monorepoRoot);
+      continue;
+    }
+
+    appType = appTypeOption as string;
+  }
+
+  const splashColor = '#000000';
+  const parsedTypes = parseAppTypes(appTypePath);
+  const selectedType = parsedTypes.find(t => t.name === appType);
+  const countryDisplayName = selectedType
+    ? selectedType.name.charAt(0).toUpperCase() + selectedType.name.slice(1)
+    : countryCode;
+  const themePath = `${brand}/${brand}-${countryCode}`;
+  const devBundleId = `com.cencosud.${countryCodeLower}.${brand}.test`;
+  const prodBundleId = `com.cencosud.${countryCodeLower}.${brand}`;
+  const firebaseProjectTest = `${countryCodeLower}-${brand}-appwl-test`;
+  const firebaseProjectProd = `${countryCodeLower}-${brand}-appwl-prod`;
+
+  console.log('');
+  clack.log.info(`App:          ${chalk.cyan(appNameStr)}`);
+  clack.log.info(`Brand:        ${chalk.cyan(brand)}`);
+  clack.log.info(`Country:      ${chalk.cyan(countryCode)} (${countryDisplayName})`);
+  clack.log.info(`AppType:      ${chalk.cyan(appType)}`);
+  clack.log.info(`Splash color: ${chalk.cyan(splashColor)}`);
+  clack.log.info(`Theme:        ${chalk.cyan(themePath)}`);
+  clack.log.info(`Dev bundle:   ${chalk.cyan(devBundleId)}`);
+  clack.log.info(`Prod bundle:  ${chalk.cyan(prodBundleId)}`);
+  clack.log.info(`Firebase:     ${chalk.cyan(firebaseProjectTest)} / ${chalk.cyan(firebaseProjectProd)}`);
+  console.log('');
+
+  const confirmCreate = await clack.confirm({
+    message: 'Create this app?',
+    initialValue: true,
+  });
+  if (clack.isCancel(confirmCreate) || !confirmCreate) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const spinner = clack.spinner();
+  spinner.start('Creating app...');
+
+  try {
+    await createApp({
+      monorepoRoot,
+      appName: appNameStr,
+      brand,
+      brandDisplayName: (brandDisplayName as string).trim(),
+      countryCode,
+      countryDisplayName,
+      appType: appType as string,
+      splashColor: (splashColor as string).trim(),
+      themePath,
+      devBundleId,
+      prodBundleId,
+      androidNamespace: prodBundleId,
+      firebaseProjectTest,
+      firebaseProjectProd,
+    });
+
+    spinner.stop('App created');
+    clack.outro(chalk.green('Done! App created successfully.'));
+  } catch (error) {
+    spinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+async function appTypeFlow(monorepoRoot: string): Promise<void> {
+  const action = await clack.select({
+    message: 'App Type management',
+    options: [
+      { value: 'new', label: 'New App Type', hint: 'Add a new country AppType to localization' },
+      { value: 'edit', label: 'Edit App Type', hint: 'Edit an existing AppType locale configuration' },
+    ],
+  });
+
+  if (clack.isCancel(action)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  switch (action as 'new' | 'edit') {
+    case 'new':
+      await newAppTypeFlow(monorepoRoot);
+      break;
+    case 'edit':
+      await editAppTypeFlow(monorepoRoot);
+      break;
+  }
+}
+
+async function newAppTypeFlow(monorepoRoot: string): Promise<void> {
+  const appTypePath = path.join(
+    monorepoRoot, 'packages', 'localization', 'lib', 'enum', 'app_type.dart',
+  );
+
+  if (!fs.existsSync(appTypePath)) {
+    clack.outro(chalk.red('app_type.dart not found in packages/localization'));
+    return;
+  }
+
+  const existingTypes = parseAppTypes(appTypePath);
+
+  const country = await clack.select({
+    message: 'Select the country for the new AppType',
+    options: SUPPORTED_COUNTRIES.map(c => ({
+      value: c,
+      label: c.name,
+      hint: `${c.locale} (${c.language})`,
+    })),
+  });
+  if (clack.isCancel(country)) { clack.cancel('Cancelled'); return; }
+
+  const selectedCountry = country as typeof SUPPORTED_COUNTRIES[number];
+  const enumName = countryToEnumName(selectedCountry.name);
+
+  if (existingTypes.some(t => t.name === enumName)) {
+    const shouldEdit = await clack.confirm({
+      message: `AppType "${enumName}" already exists. Do you want to edit it instead?`,
+      initialValue: true,
+    });
+    if (clack.isCancel(shouldEdit) || !shouldEdit) {
+      clack.cancel('Cancelled');
+      return;
+    }
+    await editAppTypeFlow(monorepoRoot, enumName);
+    return;
+  }
+
+  console.log('');
+  clack.log.info(`Country:       ${chalk.cyan(selectedCountry.name)}`);
+  clack.log.info(`Enum name:     ${chalk.cyan(enumName)}`);
+  clack.log.info(`Locale:        ${chalk.cyan(selectedCountry.locale)}`);
+  clack.log.info(`Language:      ${chalk.cyan(selectedCountry.language)}`);
+  clack.log.info(`Timezone:      ${chalk.cyan(selectedCountry.timezone)}`);
+  console.log('');
+
+  const confirmCreate = await clack.confirm({
+    message: 'Create this AppType?',
+    initialValue: true,
+  });
+  if (clack.isCancel(confirmCreate) || !confirmCreate) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const spinner = clack.spinner();
+  spinner.start('Creating AppType...');
+
+  try {
+    await createAppType(monorepoRoot, selectedCountry);
+    spinner.stop('AppType created');
+    clack.outro(chalk.green('Done! AppType created successfully.'));
+  } catch (error) {
+    spinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+async function editAppTypeFlow(monorepoRoot: string, preselectedType?: string): Promise<void> {
+  const appTypePath = path.join(
+    monorepoRoot, 'packages', 'localization', 'lib', 'enum', 'app_type.dart',
+  );
+  const i18nDir = path.join(
+    monorepoRoot, 'packages', 'localization', 'lib', 'i18n',
+  );
+
+  if (!fs.existsSync(appTypePath)) {
+    clack.outro(chalk.red('app_type.dart not found in packages/localization'));
+    return;
+  }
+
+  const existingTypes = parseAppTypes(appTypePath);
+  if (existingTypes.length === 0) {
+    clack.outro(chalk.red('No AppTypes found in app_type.dart'));
+    return;
+  }
+
+  let selectedTypeName: string;
+
+  if (preselectedType) {
+    selectedTypeName = preselectedType;
+  } else {
+    const appTypeOption = await clack.select({
+      message: 'Select AppType to edit',
+      options: existingTypes.map(t => ({
+        value: t.name,
+        label: t.name.charAt(0).toUpperCase() + t.name.slice(1),
+        hint: `default: ${t.defaultLocale}, supported: ${t.supportedLocales.join(', ')}`,
+      })),
+    });
+    if (clack.isCancel(appTypeOption)) { clack.cancel('Cancelled'); return; }
+    selectedTypeName = appTypeOption as string;
+  }
+
+  const target = existingTypes.find(t => t.name === selectedTypeName);
+  if (!target) {
+    clack.outro(chalk.red(`AppType "${selectedTypeName}" not found`));
+    return;
+  }
+
+  const existingLocales = discoverExistingLocales(i18nDir);
+  if (existingLocales.length === 0) {
+    clack.outro(chalk.red('No i18n locale files found'));
+    return;
+  }
+
+  const defaultLocale = await clack.select({
+    message: 'Select default locale',
+    options: existingLocales.map(loc => ({
+      value: loc,
+      label: loc,
+      hint: loc === target.defaultLocale ? 'current' : undefined,
+    })),
+    initialValue: target.defaultLocale,
+  });
+  if (clack.isCancel(defaultLocale)) { clack.cancel('Cancelled'); return; }
+
+  const supportedLocales = await clack.multiselect({
+    message: 'Select supported locales (space to toggle)',
+    options: existingLocales.map(loc => ({
+      value: loc,
+      label: loc,
+      selected: target.supportedLocales.includes(loc),
+    })),
+    required: true,
+  });
+  if (clack.isCancel(supportedLocales) || (supportedLocales as string[]).length === 0) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const newDefault = defaultLocale as string;
+  const newSupported = supportedLocales as string[];
+
+  if (!newSupported.includes(newDefault)) {
+    newSupported.push(newDefault);
+  }
+
+  console.log('');
+  clack.log.info(`AppType:           ${chalk.cyan(selectedTypeName)}`);
+  clack.log.info(`Default locale:    ${chalk.cyan(newDefault)}`);
+  clack.log.info(`Supported locales: ${chalk.cyan(newSupported.join(', '))}`);
+  console.log('');
+
+  const confirmEdit = await clack.confirm({
+    message: 'Save changes?',
+    initialValue: true,
+  });
+  if (clack.isCancel(confirmEdit) || !confirmEdit) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const spinner = clack.spinner();
+  spinner.start('Updating AppType...');
+
+  try {
+    await editAppType(monorepoRoot, selectedTypeName, newDefault, newSupported);
+    spinner.stop('AppType updated');
+    clack.outro(chalk.green('Done! AppType updated successfully.'));
+  } catch (error) {
+    spinner.stop('Failed');
+    clack.outro(chalk.red(`Error: ${error}`));
+  }
+}
+
+// ============================================================
 // Main Interactive Mode
 // ============================================================
 
@@ -1338,6 +1799,11 @@ export async function interactiveMode(): Promise<void> {
   const createType = await clack.select({
     message: 'What do you want to create?',
     options: [
+      {
+        value: 'app',
+        label: 'App',
+        hint: 'Create and manage apps',
+      },
       { value: 'bloc', label: 'BLoC', hint: 'State management' },
       { value: 'widget', label: 'Widget', hint: 'Design system component' },
       {
@@ -1412,6 +1878,9 @@ export async function interactiveMode(): Promise<void> {
       break;
     case 'collaborative':
       await collaborativeFlow();
+      break;
+    case 'app':
+      await appFlow();
       break;
     case 'docs':
       await docsInteractiveMode();
