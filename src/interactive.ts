@@ -1334,7 +1334,7 @@ async function collaborativeEndpointFlow(monorepoRoot: string): Promise<void> {
 // App Flow
 // ============================================================
 
-type AppAction = 'new-app' | 'app-type' | 'change-splash' | 'change-firebase';
+type AppAction = 'new-app' | 'app-type' | 'change-splash' | 'change-firebase' | 'change-app-name' | 'change-bundle-id';
 
 function getAppsList(monorepoRoot: string): string[] {
   const appsDir = path.join(monorepoRoot, 'apps');
@@ -1459,6 +1459,308 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+export async function changeBundleIdFlow(monorepoRoot: string): Promise<void> {
+  const appsDir = path.join(monorepoRoot, 'apps');
+  const apps = getAppsList(monorepoRoot);
+
+  if (apps.length === 0) {
+    clack.outro(chalk.red('No apps found in the monorepo.'));
+    return;
+  }
+
+  const selectedApp = await clack.select({
+    message: 'Select app',
+    options: apps.map(a => ({ value: a, label: a })),
+  });
+  if (clack.isCancel(selectedApp)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const appDir = path.join(appsDir, selectedApp as string);
+  const flavorizrPath = path.join(appDir, 'flavorizr.yaml');
+  if (!fs.existsSync(flavorizrPath)) {
+    clack.outro(chalk.red('No flavorizr.yaml found for this app.'));
+    return;
+  }
+
+  const flavorizrContent = fs.readFileSync(flavorizrPath, 'utf-8');
+
+  const devAppId = flavorizrContent.match(/dev:[\s\S]*?android:\s*\n\s+applicationId:\s*["'](.+?)["']/);
+  const prodAppId = flavorizrContent.match(/prod:[\s\S]*?android:\s*\n\s+applicationId:\s*["'](.+?)["']/);
+
+  if (!devAppId && !prodAppId) {
+    clack.outro(chalk.red('Could not parse bundle IDs from flavorizr.yaml.'));
+    return;
+  }
+
+  const devBundleId = devAppId ? devAppId[1] : 'N/A';
+  const prodBundleId = prodAppId ? prodAppId[1] : 'N/A';
+
+  const selectedEnv = await clack.select({
+    message: 'Select environment',
+    options: [
+      { value: 'dev', label: 'STG (dev)', hint: devBundleId },
+      { value: 'prod', label: 'PROD', hint: prodBundleId },
+    ],
+  });
+  if (clack.isCancel(selectedEnv)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const env = selectedEnv as 'dev' | 'prod';
+  const currentBundleId = env === 'dev' ? devBundleId : prodBundleId;
+
+  if (currentBundleId === 'N/A') {
+    clack.outro(chalk.red(`No ${env} flavor found in flavorizr.yaml.`));
+    return;
+  }
+
+  clack.log.info(`Current bundle ID (${env === 'dev' ? 'STG' : 'PROD'}): ${chalk.cyan(currentBundleId)}`);
+
+  const newBundleId = await clack.text({
+    message: 'New bundle ID',
+    placeholder: currentBundleId,
+    validate: (v) => {
+      const val = (v ?? '').trim();
+      if (!val) return 'Bundle ID is required';
+      if (!/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/.test(val)) return 'Must be a valid reverse-domain identifier (e.g. com.example.app)';
+    },
+  });
+  if (clack.isCancel(newBundleId)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const bundleId = (newBundleId as string).trim();
+
+  console.log('');
+  clack.log.info(`App:      ${chalk.cyan(selectedApp)}`);
+  clack.log.info(`Env:      ${chalk.cyan(env === 'dev' ? 'STG' : 'PROD')}`);
+  clack.log.info(`Bundle:   ${chalk.cyan(currentBundleId)} → ${chalk.cyan(bundleId)}`);
+  console.log('');
+
+  const confirmChange = await clack.confirm({
+    message: 'Update bundle ID?',
+    initialValue: true,
+  });
+  if (clack.isCancel(confirmChange) || !confirmChange) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const escapedCurrent = escapeRegex(currentBundleId);
+  let updatedFlavorizr = flavorizrContent;
+
+  const flavorizrAppIdRegex = new RegExp(
+    `(android:\\s*\\n\\s+applicationId:\\s*["'])${escapedCurrent}(["'])`
+  );
+  updatedFlavorizr = updatedFlavorizr.replace(flavorizrAppIdRegex, `$1${bundleId}$2`);
+
+  const flavorizrIosRegex = new RegExp(
+    `(ios:\\s*\\n\\s+bundleId:\\s*["'])${escapedCurrent}(["'])`
+  );
+  updatedFlavorizr = updatedFlavorizr.replace(flavorizrIosRegex, `$1${bundleId}$2`);
+
+  if (updatedFlavorizr !== flavorizrContent) {
+    fs.writeFileSync(flavorizrPath, updatedFlavorizr);
+    clack.log.success('flavorizr.yaml updated');
+  }
+
+  const makefilePath = path.join(appDir, 'Makefile');
+  if (fs.existsSync(makefilePath)) {
+    let makefileContent = fs.readFileSync(makefilePath, 'utf-8');
+    let makefileUpdated = false;
+
+    const targets = env === 'dev'
+      ? ['firebase', 'fire-stg']
+      : ['fire-prod'];
+
+    for (const target of targets) {
+      const targetRegex = new RegExp(
+        `(${target}:\\s*\\n(?:\\s*#[^\\n]*\\n)*\\s*flutterfire configure[^]*?)(--ios-bundle-id=)${escapedCurrent}(\\s+--android-package-name=)${escapedCurrent}`
+      );
+      const newContent = makefileContent.replace(
+        targetRegex,
+        `$1$2${bundleId}$3${bundleId}`
+      );
+      if (newContent !== makefileContent) {
+        makefileContent = newContent;
+        makefileUpdated = true;
+      }
+    }
+
+    if (makefileUpdated) {
+      fs.writeFileSync(makefilePath, makefileContent);
+      clack.log.success('Makefile updated');
+    }
+  }
+
+  const exportOptionsPath = path.join(appDir, 'ExportOptions.plist');
+  if (fs.existsSync(exportOptionsPath)) {
+    let exportContent = fs.readFileSync(exportOptionsPath, 'utf-8');
+    const exportRegex = new RegExp(`(<key>)${escapedCurrent}(</key>)`, 'g');
+    const newExportContent = exportContent.replace(exportRegex, `$1${bundleId}$2`);
+    if (newExportContent !== exportContent) {
+      fs.writeFileSync(exportOptionsPath, newExportContent);
+      clack.log.success('ExportOptions.plist updated');
+    }
+  }
+
+  const envFile = env === 'dev' ? 'development.env.json' : 'production.env.json';
+  const envPath = path.join(appDir, 'env', envFile);
+  if (fs.existsSync(envPath)) {
+    let envContent = fs.readFileSync(envPath, 'utf-8');
+    const envJson = JSON.parse(envContent);
+    if (envJson.ANDROID_STORE_URL && envJson.ANDROID_STORE_URL.includes(currentBundleId)) {
+      envJson.ANDROID_STORE_URL = envJson.ANDROID_STORE_URL.replace(currentBundleId, bundleId);
+      fs.writeFileSync(envPath, JSON.stringify(envJson, null, 2) + '\n');
+      clack.log.success(`${envFile} updated (ANDROID_STORE_URL)`);
+    }
+  }
+
+  console.log('');
+  clack.log.info(chalk.bold('Next steps:'));
+  clack.log.info(`  1. Run flavors:   ${chalk.cyan(`cd apps/${selectedApp} && make flavors`)}`);
+  clack.log.info(`  2. Run Firebase:  ${chalk.cyan(`cd apps/${selectedApp} && make ${env === 'dev' ? 'fire-stg' : 'fire-prod'}`)}`);
+
+  const spinner = clack.spinner();
+  spinner.start('Running flutter_flavorizr...');
+
+  try {
+    execSync('dart run flutter_flavorizr', {
+      cwd: appDir,
+      stdio: 'pipe',
+    });
+    spinner.stop('Flavors regenerated!');
+  } catch {
+    spinner.stop('Failed to run flutter_flavorizr');
+    clack.log.warn(chalk.yellow('Run manually: make flavors'));
+  }
+
+  clack.outro(chalk.green('Done!'));
+}
+
+export async function changeAppNameFlow(monorepoRoot: string): Promise<void> {
+  const appsDir = path.join(monorepoRoot, 'apps');
+  const apps = getAppsList(monorepoRoot);
+
+  if (apps.length === 0) {
+    clack.outro(chalk.red('No apps found in the monorepo.'));
+    return;
+  }
+
+  const selectedApp = await clack.select({
+    message: 'Select app',
+    options: apps.map(a => ({ value: a, label: a })),
+  });
+  if (clack.isCancel(selectedApp)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const flavorizrPath = path.join(appsDir, selectedApp as string, 'flavorizr.yaml');
+  if (!fs.existsSync(flavorizrPath)) {
+    clack.outro(chalk.red('No flavorizr.yaml found for this app.'));
+    return;
+  }
+
+  const flavorizrContent = fs.readFileSync(flavorizrPath, 'utf-8');
+
+  const devNameMatch = flavorizrContent.match(/dev:\s*\n\s+app:\s*\n\s+name:\s*["'](.+?)["']/);
+  const prodNameMatch = flavorizrContent.match(/prod:\s*\n\s+app:\s*\n\s+name:\s*["'](.+?)["']/);
+
+  if (!devNameMatch && !prodNameMatch) {
+    clack.outro(chalk.red('Could not parse app names from flavorizr.yaml.'));
+    return;
+  }
+
+  const devName = devNameMatch ? devNameMatch[1] : 'N/A';
+  const prodName = prodNameMatch ? prodNameMatch[1] : 'N/A';
+
+  const selectedEnv = await clack.select({
+    message: 'Select environment',
+    options: [
+      { value: 'dev', label: 'STG (dev)', hint: devName },
+      { value: 'prod', label: 'PROD', hint: prodName },
+    ],
+  });
+  if (clack.isCancel(selectedEnv)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const env = selectedEnv as 'dev' | 'prod';
+  const currentName = env === 'dev' ? devName : prodName;
+
+  if (currentName === 'N/A') {
+    clack.outro(chalk.red(`No ${env} flavor found in flavorizr.yaml.`));
+    return;
+  }
+
+  clack.log.info(`Current app name (${env === 'dev' ? 'STG' : 'PROD'}): ${chalk.cyan(currentName)}`);
+
+  const newName = await clack.text({
+    message: 'New app name',
+    placeholder: currentName,
+    validate: (v) => {
+      const val = (v ?? '').trim();
+      if (!val) return 'App name is required';
+    },
+  });
+  if (clack.isCancel(newName)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const appName = (newName as string).trim();
+
+  console.log('');
+  clack.log.info(`App:   ${chalk.cyan(selectedApp)}`);
+  clack.log.info(`Env:   ${chalk.cyan(env === 'dev' ? 'STG' : 'PROD')}`);
+  clack.log.info(`Name:  ${chalk.cyan(currentName)} → ${chalk.cyan(appName)}`);
+  console.log('');
+
+  const confirmChange = await clack.confirm({
+    message: 'Update app name?',
+    initialValue: true,
+  });
+  if (clack.isCancel(confirmChange) || !confirmChange) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const escapedCurrent = escapeRegex(currentName);
+  const flavorRegex = new RegExp(
+    `(${env}:\\s*\\n\\s+app:\\s*\\n\\s+name:\\s*["'])${escapedCurrent}(["'])`
+  );
+  const updated = flavorizrContent.replace(flavorRegex, `$1${appName}$2`);
+
+  if (updated === flavorizrContent) {
+    clack.outro(chalk.yellow('No changes made. Name not found or unchanged.'));
+    return;
+  }
+
+  fs.writeFileSync(flavorizrPath, updated);
+
+  const spinner = clack.spinner();
+  spinner.start('Running flutter_flavorizr...');
+
+  try {
+    execSync('dart run flutter_flavorizr', {
+      cwd: path.join(appsDir, selectedApp as string),
+      stdio: 'pipe',
+    });
+    spinner.stop('App name updated and flavors generated!');
+    clack.outro(chalk.green('Done!'));
+  } catch {
+    spinner.stop('Failed to run flutter_flavorizr');
+    clack.log.warn(chalk.yellow('flavorizr.yaml updated but flavor generation failed.'));
+    clack.log.info(`Run manually: ${chalk.cyan(`cd apps/${selectedApp} && make flavors`)}`);
+  }
+}
+
 export async function changeSplashColorFlow(monorepoRoot: string): Promise<void> {
   const appsDir = path.join(monorepoRoot, 'apps');
   const apps = getAppsList(monorepoRoot);
@@ -1560,6 +1862,8 @@ export async function appFlow(): Promise<void> {
       { value: 'app-type', label: 'App Type', hint: 'Manage AppType countries in localization' },
       { value: 'change-splash', label: 'Change Splash Color', hint: 'Update native splash screen color' },
       { value: 'change-firebase', label: 'Change Firebase Project', hint: 'Update Firebase project in Makefile' },
+      { value: 'change-app-name', label: 'Change App Name', hint: 'Update app display name (Android & iOS)' },
+      { value: 'change-bundle-id', label: 'Change Bundle ID', hint: 'Update bundle ID / application ID (Android & iOS)' },
     ],
   });
 
@@ -1580,6 +1884,12 @@ export async function appFlow(): Promise<void> {
       break;
     case 'change-firebase':
       await changeFirebaseProjectFlow(monorepoRoot);
+      break;
+    case 'change-app-name':
+      await changeAppNameFlow(monorepoRoot);
+      break;
+    case 'change-bundle-id':
+      await changeBundleIdFlow(monorepoRoot);
       break;
   }
 }
