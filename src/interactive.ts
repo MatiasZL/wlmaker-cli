@@ -1334,22 +1334,134 @@ async function collaborativeEndpointFlow(monorepoRoot: string): Promise<void> {
 // App Flow
 // ============================================================
 
-type AppAction = 'new-app' | 'app-type' | 'change-splash';
+type AppAction = 'new-app' | 'app-type' | 'change-splash' | 'change-firebase';
 
-export async function changeSplashColorFlow(monorepoRoot: string): Promise<void> {
+function getAppsList(monorepoRoot: string): string[] {
   const appsDir = path.join(monorepoRoot, 'apps');
-  if (!fs.existsSync(appsDir)) {
-    clack.outro(chalk.red('No apps directory found.'));
-    return;
-  }
-
-  const apps = fs
+  if (!fs.existsSync(appsDir)) return [];
+  return fs
     .readdirSync(appsDir, { withFileTypes: true })
     .filter(d => d.isDirectory())
     .filter(d => d.name !== 'widgetbook')
     .filter(d => fs.existsSync(path.join(appsDir, d.name, 'pubspec.yaml')))
     .map(d => d.name)
     .sort();
+}
+
+export async function changeFirebaseProjectFlow(monorepoRoot: string): Promise<void> {
+  const appsDir = path.join(monorepoRoot, 'apps');
+  const apps = getAppsList(monorepoRoot);
+
+  if (apps.length === 0) {
+    clack.outro(chalk.red('No apps found in the monorepo.'));
+    return;
+  }
+
+  const selectedApp = await clack.select({
+    message: 'Select app',
+    options: apps.map(a => ({ value: a, label: a })),
+  });
+  if (clack.isCancel(selectedApp)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const makefilePath = path.join(appsDir, selectedApp as string, 'Makefile');
+  if (!fs.existsSync(makefilePath)) {
+    clack.outro(chalk.red('No Makefile found for this app.'));
+    return;
+  }
+
+  const makefileContent = fs.readFileSync(makefilePath, 'utf-8');
+
+  const stgMatch = makefileContent.match(/fire-stg:\s*\n\tflutterfire configure[^]*?--project=([^\s]+)/);
+  const prodMatch = makefileContent.match(/fire-prod:\s*\n\tflutterfire configure[^]*?--project=([^\s]+)/);
+
+  if (!stgMatch && !prodMatch) {
+    clack.outro(chalk.red('No fire-stg or fire-prod targets found in Makefile.'));
+    return;
+  }
+
+  const stgProject = stgMatch ? stgMatch[1] : 'N/A';
+  const prodProject = prodMatch ? prodMatch[1] : 'N/A';
+
+  const selectedEnv = await clack.select({
+    message: 'Select environment',
+    options: [
+      { value: 'stg', label: 'STG', hint: `project: ${stgProject}` },
+      { value: 'prod', label: 'PROD', hint: `project: ${prodProject}` },
+    ],
+  });
+  if (clack.isCancel(selectedEnv)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const env = selectedEnv as 'stg' | 'prod';
+  const currentProject = env === 'stg' ? stgProject : prodProject;
+
+  if (currentProject === 'N/A') {
+    clack.outro(chalk.red(`No fire-${env} target found in Makefile.`));
+    return;
+  }
+
+  clack.log.info(`Current Firebase project (${env.toUpperCase()}): ${chalk.cyan(currentProject)}`);
+
+  const newProject = await clack.text({
+    message: 'New Firebase project ID',
+    placeholder: currentProject,
+    validate: (v) => {
+      const val = (v ?? '').trim();
+      if (!val) return 'Project ID is required';
+      if (/\s/.test(val)) return 'Project ID cannot contain spaces';
+    },
+  });
+  if (clack.isCancel(newProject)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const projectId = (newProject as string).trim();
+
+  console.log('');
+  clack.log.info(`App:        ${chalk.cyan(selectedApp)}`);
+  clack.log.info(`Env:        ${chalk.cyan(env.toUpperCase())}`);
+  clack.log.info(`Project:    ${chalk.cyan(currentProject)} → ${chalk.cyan(projectId)}`);
+  console.log('');
+
+  const confirmChange = await clack.confirm({
+    message: 'Update Firebase project?',
+    initialValue: true,
+  });
+  if (clack.isCancel(confirmChange) || !confirmChange) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const targetName = `fire-${env}`;
+  const targetRegex = new RegExp(
+    `(${targetName}:\\s*\\n\\tflutterfire configure[^]*?--project=)${escapeRegex(currentProject)}`
+  );
+  const updated = makefileContent.replace(targetRegex, `$1${projectId}`);
+
+  if (updated === makefileContent) {
+    clack.outro(chalk.yellow('No changes made. Target not found or project ID unchanged.'));
+    return;
+  }
+
+  fs.writeFileSync(makefilePath, updated);
+  clack.log.success(chalk.green('Makefile updated!'));
+  clack.log.info(`Run: ${chalk.cyan(`cd apps/${selectedApp} && make ${targetName}`)}`);
+  clack.outro('Done!');
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export async function changeSplashColorFlow(monorepoRoot: string): Promise<void> {
+  const appsDir = path.join(monorepoRoot, 'apps');
+  const apps = getAppsList(monorepoRoot);
 
   if (apps.length === 0) {
     clack.outro(chalk.red('No apps found in the monorepo.'));
@@ -1447,6 +1559,7 @@ export async function appFlow(): Promise<void> {
       { value: 'new-app', label: 'New App', hint: 'Create a new app in the monorepo' },
       { value: 'app-type', label: 'App Type', hint: 'Manage AppType countries in localization' },
       { value: 'change-splash', label: 'Change Splash Color', hint: 'Update native splash screen color' },
+      { value: 'change-firebase', label: 'Change Firebase Project', hint: 'Update Firebase project in Makefile' },
     ],
   });
 
@@ -1464,6 +1577,9 @@ export async function appFlow(): Promise<void> {
       break;
     case 'change-splash':
       await changeSplashColorFlow(monorepoRoot);
+      break;
+    case 'change-firebase':
+      await changeFirebaseProjectFlow(monorepoRoot);
       break;
   }
 }
