@@ -1334,7 +1334,7 @@ async function collaborativeEndpointFlow(monorepoRoot: string): Promise<void> {
 // App Flow
 // ============================================================
 
-type AppAction = 'new-app' | 'app-type' | 'change-splash' | 'change-firebase' | 'change-app-name' | 'change-bundle-id';
+type AppAction = 'new-app' | 'app-type' | 'change-splash' | 'change-firebase' | 'change-app-name' | 'change-bundle-id' | 'manage-entitlements';
 
 function getAppsList(monorepoRoot: string): string[] {
   const appsDir = path.join(monorepoRoot, 'apps');
@@ -1846,6 +1846,191 @@ export async function changeSplashColorFlow(monorepoRoot: string): Promise<void>
   }
 }
 
+export async function manageEntitlementsFlow(monorepoRoot: string): Promise<void> {
+  const appsDir = path.join(monorepoRoot, 'apps');
+  const apps = getAppsList(monorepoRoot);
+
+  if (apps.length === 0) {
+    clack.outro(chalk.red('No apps found in the monorepo.'));
+    return;
+  }
+
+  const selectedApp = await clack.select({
+    message: 'Select app',
+    options: apps.map(a => ({ value: a, label: a })),
+  });
+  if (clack.isCancel(selectedApp)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const appDir = path.join(appsDir, selectedApp as string);
+  const entitlementsPath = path.join(appDir, 'ios', 'Runner', 'Runner.entitlements');
+
+  const EMPTY_ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+</dict>
+</plist>
+`;
+
+  if (!fs.existsSync(entitlementsPath)) {
+    const runnerDir = path.dirname(entitlementsPath);
+    if (!fs.existsSync(runnerDir)) {
+      fs.mkdirSync(runnerDir, { recursive: true });
+    }
+    fs.writeFileSync(entitlementsPath, EMPTY_ENTITLEMENTS);
+    clack.log.success('Created Runner.entitlements');
+  }
+
+  let content = fs.readFileSync(entitlementsPath, 'utf-8');
+
+  const hasPush = /<key>aps-environment<\/key>/.test(content);
+  const associatedDomainsMatch = content.match(/<key>com\.apple\.developer\.associated-domains<\/key>\s*<array>([\s\S]*?)<\/array>/);
+  const hasAssociatedDomains = !!associatedDomainsMatch;
+  const currentDomains: string[] = [];
+  if (hasAssociatedDomains) {
+    const domainMatches = associatedDomainsMatch![1].matchAll(/<string>([^<]+)<\/string>/g);
+    for (const dm of domainMatches) {
+      currentDomains.push(dm[1]);
+    }
+  }
+
+  clack.log.info('Entitlements configure iOS app capabilities.');
+  clack.log.info(`Push Notifications: ${hasPush ? chalk.green('enabled') : chalk.gray('disabled')}`);
+  if (hasAssociatedDomains && currentDomains.length > 0) {
+    clack.log.info(`Associated Domains: ${chalk.cyan(currentDomains.join(', '))}`);
+  } else {
+    clack.log.info(`Associated Domains: ${chalk.gray('none')}`);
+  }
+
+  async function showMenu(): Promise<void> {
+    const currentContent = fs.readFileSync(entitlementsPath, 'utf-8');
+    const pushEnabled = /<key>aps-environment<\/key>/.test(content);
+    const adMatch = currentContent.match(/<key>com\.apple\.developer\.associated-domains<\/key>\s*<array>([\s\S]*?)<\/array>/);
+    const domains: string[] = [];
+    if (adMatch) {
+      for (const dm of adMatch[1].matchAll(/<string>([^<]+)<\/string>/g)) {
+        domains.push(dm[1]);
+      }
+    }
+
+    const action = await clack.select({
+      message: 'Entitlements configuration',
+      options: [
+        {
+          value: 'toggle-push',
+          label: pushEnabled ? 'Disable Push Notifications' : 'Enable Push Notifications',
+          hint: pushEnabled ? 'Remove aps-environment' : 'Add aps-environment (production)',
+        },
+        {
+          value: 'add-domains',
+          label: 'Configure Associated Domains',
+          hint: hasAssociatedDomains ? `Current: ${domains.filter(d => d.startsWith('applinks:')).map(d => d.replace('applinks:', '')).join(', ') || 'none'}` : 'No domains configured',
+        },
+        {
+          value: 'remove-domains',
+          label: 'Remove Associated Domains',
+          hint: hasAssociatedDomains ? 'Remove all applinks + webcredentials' : 'No domains to remove',
+        },
+        { value: 'done', label: 'Done', hint: 'Go back' },
+      ],
+    });
+    if (clack.isCancel(action)) {
+      clack.cancel('Cancelled');
+      return;
+    }
+
+    let updated = currentContent;
+
+    switch (action) {
+      case 'toggle-push': {
+        if (pushEnabled) {
+          updated = updated.replace(/\s*<key>aps-environment<\/key>\s*\n\s*<string>production<\/string>/, '');
+        } else {
+          updated = updated.replace('</dict>', `\t<key>aps-environment</key>\n\t<string>production</string>\n</dict>`);
+        }
+        fs.writeFileSync(entitlementsPath, updated);
+        content = updated;
+        clack.log.success(pushEnabled ? 'Push notifications disabled' : 'Push notifications enabled (production)');
+        await showMenu();
+        break;
+      }
+
+      case 'add-domains': {
+        const domain = await clack.text({
+          message: 'Domain (e.g., www.jumbo.com.ar)',
+          placeholder: 'www.example.com',
+          validate: (v) => {
+            const val = (v ?? '').trim();
+            if (!val) return 'Domain is required';
+            if (!/^[\w.-]+$/.test(val)) return 'Invalid domain format';
+          },
+        });
+        if (clack.isCancel(domain)) {
+          await showMenu();
+          return;
+        }
+
+        const domainStr = (domain as string).trim();
+        const applink = `applinks:${domainStr}`;
+        const webcred = `webcredentials:${domainStr}`;
+
+        if (updated.includes(applink) && updated.includes(webcred)) {
+          clack.log.info(chalk.yellow('Domain already configured'));
+          await showMenu();
+          return;
+        }
+
+        const existingAdMatch = updated.match(/<key>com\.apple\.developer\.associated-domains<\/key>\s*<array>([\s\S]*?)<\/array>/);
+        if (existingAdMatch) {
+          let arrayContent = existingAdMatch[1];
+          if (!arrayContent.includes(applink)) {
+            arrayContent += `\n\t\t<string>${applink}</string>`;
+          }
+          if (!arrayContent.includes(webcred)) {
+            arrayContent += `\n\t\t<string>${webcred}</string>`;
+          }
+          updated = updated.replace(
+            /(<key>com\.apple\.developer\.associated-domains<\/key>\s*<array>)([\s\S]*?)(<\/array>)/,
+            `$1${arrayContent}\n\t$3`,
+          );
+        } else {
+          const block = `\t<key>com.apple.developer.associated-domains</key>\n\t<array>\n\t\t<string>${applink}</string>\n\t\t<string>${webcred}</string>\n\t</array>`;
+          updated = updated.replace('</dict>', `${block}\n</dict>`);
+        }
+
+        fs.writeFileSync(entitlementsPath, updated);
+        content = updated;
+        clack.log.success(`Associated domains configured for ${chalk.cyan(domainStr)}`);
+        await showMenu();
+        break;
+      }
+
+      case 'remove-domains': {
+        if (!hasAssociatedDomains) {
+          clack.log.info(chalk.yellow('No associated domains to remove'));
+          await showMenu();
+          return;
+        }
+        updated = updated.replace(/\s*<key>com\.apple\.developer\.associated-domains<\/key>\s*\n\s*<array>[\s\S]*?<\/array>/, '');
+        fs.writeFileSync(entitlementsPath, updated);
+        content = updated;
+        clack.log.success('Associated domains removed');
+        await showMenu();
+        break;
+      }
+
+      case 'done':
+        clack.outro(chalk.green('Done!'));
+        break;
+    }
+  }
+
+  await showMenu();
+}
+
 export async function appFlow(): Promise<void> {
   const monorepoRoot = findMonorepoRoot(process.cwd());
   if (!monorepoRoot) {
@@ -1864,6 +2049,7 @@ export async function appFlow(): Promise<void> {
       { value: 'change-firebase', label: 'Change Firebase Project', hint: 'Update Firebase project in Makefile' },
       { value: 'change-app-name', label: 'Change App Name', hint: 'Update app display name (Android & iOS)' },
       { value: 'change-bundle-id', label: 'Change Bundle ID', hint: 'Update bundle ID / application ID (Android & iOS)' },
+      { value: 'manage-entitlements', label: 'Manage Entitlements', hint: 'Configure iOS capabilities (push notifications, universal links)' },
     ],
   });
 
@@ -1890,6 +2076,9 @@ export async function appFlow(): Promise<void> {
       break;
     case 'change-bundle-id':
       await changeBundleIdFlow(monorepoRoot);
+      break;
+    case 'manage-entitlements':
+      await manageEntitlementsFlow(monorepoRoot);
       break;
   }
 }

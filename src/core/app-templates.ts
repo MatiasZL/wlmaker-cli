@@ -1484,3 +1484,338 @@ export function themeJsonTemplate(brand: string, countryCode: string): string {
     }
   }, null, 2);
 }
+
+export function runnerEntitlementsTemplate(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+</dict>
+</plist>
+`;
+}
+
+export function addressRouterTemplate(params: AppTemplateParams): string {
+  return `import 'package:address/address.dart';
+import 'package:${params.appName}/dependencies/dependencies.dart';
+import 'package:categories/categories.dart';
+import 'package:core/core.dart';
+import 'package:flutter/widgets.dart';
+import 'package:go_router/go_router.dart';
+import 'package:home/home.dart';
+import 'package:injectable/injectable.dart';
+import 'package:plp/plp.dart';
+
+@Singleton(as: AddressRouter)
+class AddressRouterImpl implements AddressRouter {
+  AddressRouterImpl(this._screenNames);
+
+  final ScreenNames _screenNames;
+
+  @override
+  String get deliveryModePageFullPath => DeliveryModePage.fullPath;
+
+  @override
+  String get addAddressFullPath => AddAddressPage.fullPath;
+
+  @override
+  GoRoute get addAddressPage => AddAddressPage(
+    openHomePage: HomePage.openWithCallback,
+    bloc: (_) => getIt(),
+    confirmAddressBloc: (_) => getIt(),
+    completeAddressBloc: (_) => getIt(),
+    name: _screenNames.addAddress,
+    platformRedirectConfig: getIt(),
+    openPlpPage: PlpPage.open,
+    openCategoryPage: CategoriesPage.open,
+    openAddAddressManualPage: openAddAddressManualPage,
+    subRoutes: [
+      ?addAddressManualPage,
+    ],
+  );
+
+  @override
+  String get addStoreFullPath => AddStorePage.fullPath;
+
+  @override
+  GoRoute get addStorePage => AddStorePage(
+    openHomePage: HomePage.open,
+    name: _screenNames.addStore,
+    bloc: (_) => getIt(),
+  );
+
+  @override
+  GoRoute get deliveryModePage => DeliveryModePage(
+    openHomePage: HomePage.openWithCallback,
+    name: _screenNames.deliveryMode,
+    platformRedirectConfig: getIt(),
+    openCategoryPage: CategoriesPage.open,
+    deliveryTypeBottomSheetRouteName: _screenNames.deliveryTypeBottomSheet,
+  );
+
+  @override
+  String get forceDeliveryAddressFullPath => '/force-delivery-address';
+
+  @override
+  GoRoute get forceDeliveryAddressPage => DeliveryModePage(
+    openHomePage: HomePage.openWithCallback,
+    path: forceDeliveryAddressFullPath,
+    name: _screenNames.forceDeliveryAddress,
+    platformRedirectConfig: getIt(),
+    openCategoryPage: CategoriesPage.open,
+    deliveryTypeBottomSheetRouteName: _screenNames.deliveryTypeBottomSheet,
+  );
+
+  @override
+  GoRoute get myAddressPage => MyAddressPage(
+    name: _screenNames.myAddress,
+  );
+
+  @override
+  String get myAddressFullPath => MyAddressPage.fullPath;
+
+  @override
+  OnOpenDeliveryModePage get openDeliveryModePage => DeliveryModePage.open;
+
+  @override
+  void Function(BuildContext) get openMyAddressPage => MyAddressPage.open;
+
+  @override
+  void Function(BuildContext, {bool? isFromForceAddress})
+  get openAddAddressPage => AddAddressPage.open;
+
+  @override
+  void Function(BuildContext) get openAddStorePage => AddStorePage.open;
+
+  @override
+  String? get favoriteStoreSelectionFullPath => null;
+
+  @override
+  GoRoute? get favoriteStoreSelectionPage => null;
+
+  @override
+  OnOpenFavoriteStoreSelectionPage? get openFavoriteStoreSelectionPage => null;
+
+  @override
+  OnPushFavoriteStoreSelectionPage? get pushFavoriteStoreSelectionPage => null;
+
+  @override
+  String? get validateZipCodeFullPath => null;
+
+  @override
+  GoRoute? get validateZipCodePage => null;
+
+  @override
+  OnOpenValidateZipCodePage? get openValidateZipCodePage => null;
+
+  @override
+  String? get addAddressManualFullPath => AddAddressManualPage.fullPath;
+
+  @override
+  GoRoute? get addAddressManualPage => AddAddressManualPage(
+    bloc: (_) => getIt(),
+    confirmAddressManualBloc: (_) => getIt(),
+    openHomePage: HomePage.openWithCallback,
+    openPlpPage: PlpPage.open,
+    openCategoryPage: CategoriesPage.open,
+    platformRedirectConfig: getIt(),
+  );
+
+  @override
+  OnOpenAddAddressManualPage? get openAddAddressManualPage =>
+      AddAddressManualPage.open;
+}
+`;
+}
+
+export function countryModuleTemplate(): string {
+  return `import 'package:core/core.dart';
+import 'package:dio/dio.dart';
+import 'package:injectable/injectable.dart';
+
+@module
+abstract class CountryModule {
+  @lazySingleton
+  GetCountryStates getCountryStates(CountryRepository repository) =>
+      GetCountryStates(repository: repository);
+
+  @lazySingleton
+  GetCountryCities getCountryCities(CountryRepository repository) =>
+      GetCountryCities(repository: repository);
+
+  @lazySingleton
+  GetCountryLocalitiesByStateId getLocalitiesByStateId(
+    CountryRepository repository,
+  ) => GetCountryLocalitiesByStateId(repository: repository);
+
+  @lazySingleton
+  GetCountryLocalitiesByCityId getLocalitiesByCityId(
+    CountryRepository repository,
+  ) => GetCountryLocalitiesByCityId(repository: repository);
+
+  @lazySingleton
+  CountryRepository countryRepository(CountryRestDataSource dataSource) =>
+      CountryRepositoryData(dataSource: dataSource);
+
+  @lazySingleton
+  CountryRestDataSource countryRestDataSource(BffCountryApi api) =>
+      CountryRestDataSource(api: api);
+
+  @lazySingleton
+  BffCountryApi bffCountryApi(Dio dio, AppConfig config, AppEnvironment env) {
+    // For local development
+    // final baseUrl = env.bffApiUrl;
+    final baseUrl = config.bffApiUrl ?? env.bffApiUrl;
+
+    return BffCountryApi(dio, baseUrl: baseUrl);
+  }
+}
+`;
+}
+
+export function storeModuleTemplate(): string {
+  return `import 'package:core/core.dart';
+import 'package:injectable/injectable.dart';
+
+@module
+abstract class StoreModule {
+  @lazySingleton
+  GetStoreStates getStoreStates(
+    StoreBranchRepository repository,
+  ) => GetStoreStates(repository);
+
+  @lazySingleton
+  GetStoreBranches getStoreBranches(
+    StoreBranchRepository repository,
+  ) => GetStoreBranches(repository);
+
+  @lazySingleton
+  StoreBranchRepository storeBranchRepository(
+    CountryRestDataSource dataSource,
+  ) => StoreBranchRepositoryData(dataSource: dataSource);
+}
+`;
+}
+
+export function checkoutModuleTemplate(params: AppTemplateParams): string {
+  return `import 'package:app_base/app_base.dart';
+import 'package:checkout/checkout.dart';
+import 'package:${params.appName}/${params.appName}.dart';
+import 'package:core/core.dart';
+import 'package:injectable/injectable.dart';
+
+@module
+abstract class CheckoutModule {
+  @singleton
+  CheckoutPage checkoutPage(ScreenNames screenNames) => CheckoutPage(
+    name: screenNames.checkout,
+    checkoutBloc: (context) => getIt(),
+    view: CheckoutViewAr(
+      animationPath: getIt<AppAssets>().checkoutAnimationPath,
+      screenNames: screenNames,
+    ),
+  );
+}
+`;
+}
+
+export function primeModuleTemplate(params: AppTemplateParams): string {
+  return `import 'package:${params.appName}/dependencies/dependencies.dart';
+import 'package:core/core.dart';
+import 'package:injectable/injectable.dart';
+import 'package:pdp/pdp.dart';
+import 'package:plp/plp.dart';
+import 'package:prime/prime.dart';
+
+@module
+abstract class PrimeModule {
+  @singleton
+  PrimePage primePage(ScreenNames screenNames) => PrimeCmsPage(
+    name: screenNames.prime,
+    cmsViewBloc: (context) => getIt(),
+    featuredProductBloc: (context) => getIt(),
+    primeBloc: (context) => getIt(),
+    personalizedProductBloc: (context) => getIt(),
+    openPlpPage: PlpPage.open,
+    openPdpPage: PdpPage.open,
+  );
+}
+`;
+}
+
+export function sessionRouterImplTemplate(params: AppTemplateParams): string {
+  return `import 'package:app_base/app_base.dart';
+import 'package:${params.appName}/${params.appName}.dart';
+import 'package:core/core.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:injectable/injectable.dart';
+import 'package:login/login.dart';
+import 'package:recover_password/recover_password.dart';
+import 'package:sign_up/sign_up.dart';
+
+@Singleton(as: SessionRouter)
+class SessionRouterImpl implements SessionRouter {
+  SessionRouterImpl(this._screenNames);
+
+  final ScreenNames _screenNames;
+
+  @override
+  String get loginFullPath => LoginPage.fullPath;
+  @override
+  String get signUpFullPath => SignUpPage.fullPath;
+  @override
+  String get recoverPasswordFullPath => RecoverPasswordPage.fullPath;
+
+  @override
+  GoRoute get loginPage => LoginPage(
+    name: _screenNames.login,
+    logo: getIt<AppAssets>().logo,
+    loginBloc: (context) => getIt(),
+    openSignUpPage: openSignUpPage,
+    openRecoverPasswordPage: openRecoverPasswordPage,
+    openCreatePasswordPage: CreateNewPasswordPage.open,
+    enableNetworkInspector: enableNetworkInspector,
+  );
+
+  @override
+  GoRoute get signUpPage => SignUpPage(
+    name: _screenNames.signUp,
+    signUpBloc: (context) => getIt(),
+    signUpClickEventEmitter: getIt(),
+    phonePrefixes: getItBase<AppEnvironment>().phonePrefixes,
+    validation: getItBase<AppEnvironment>().signUpFormValidation,
+    documentTypes: getItBase<AppEnvironment>().documentTypes,
+    openCreatePasswordPage: CreateNewPasswordPage.open,
+    openLoginPage: openLoginPage,
+  );
+
+  @override
+  GoRoute get recoverPasswordPage => RecoverPasswordPage(
+    recoverPasswordBloc: (_) => getIt(),
+    openCreatePasswordPage: CreateNewPasswordPage.open,
+    openSignUpPage: (context, {String? email}) =>
+        openSignUpPage(context, id: email),
+    name: _screenNames.recoverPassword,
+  );
+
+  @override
+  void Function(
+    BuildContext, {
+    bool? resetTemplateState,
+    bool? showSuspendedAccountAlert,
+  })
+  get openLoginPage =>
+      (context, {resetTemplateState, showSuspendedAccountAlert}) =>
+          LoginPage.open(context);
+
+  @override
+  void Function(BuildContext, {String? id}) get openSignUpPage =>
+      SignUpPage.open;
+
+  @override
+  void Function(BuildContext, {String? email}) get openRecoverPasswordPage =>
+      RecoverPasswordPage.open;
+}
+`;
+}

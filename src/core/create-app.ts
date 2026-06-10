@@ -35,6 +35,13 @@ import {
   mainActivityTemplate,
   searchActionJsonTemplate,
   themeJsonTemplate,
+  runnerEntitlementsTemplate,
+  addressRouterTemplate,
+  countryModuleTemplate,
+  storeModuleTemplate,
+  checkoutModuleTemplate,
+  primeModuleTemplate,
+  sessionRouterImplTemplate,
 } from './app-templates.js';
 
 export interface CreateAppOptions {
@@ -201,6 +208,21 @@ export async function createApp(options: CreateAppOptions): Promise<void> {
     collaborativeRouterTemplate(params),
   );
 
+  ensureDir(path.join(libDir, 'dependencies', 'address', 'country'));
+  ensureDir(path.join(libDir, 'dependencies', 'address', 'store'));
+  write(path.join(libDir, 'dependencies', 'address', 'address.dart'), addressRouterTemplate(params));
+  write(path.join(libDir, 'dependencies', 'address', 'country', 'country.dart'), countryModuleTemplate());
+  write(path.join(libDir, 'dependencies', 'address', 'store', 'store.dart'), storeModuleTemplate());
+
+  ensureDir(path.join(libDir, 'dependencies', 'checkout'));
+  write(path.join(libDir, 'dependencies', 'checkout', 'checkout.dart'), checkoutModuleTemplate(params));
+
+  ensureDir(path.join(libDir, 'dependencies', 'prime'));
+  write(path.join(libDir, 'dependencies', 'prime', 'prime.dart'), primeModuleTemplate(params));
+
+  ensureDir(path.join(libDir, 'dependencies', 'sessions'));
+  write(path.join(libDir, 'dependencies', 'sessions', 'session_router_impl.dart'), sessionRouterImplTemplate(params));
+
   console.log(chalk.cyan(' → Writing Android files (Kotlin DSL)...'));
 
   write(path.join(appDir, 'android', 'build.gradle.kts'), androidBuildGradleTemplate());
@@ -215,6 +237,12 @@ export async function createApp(options: CreateAppOptions): Promise<void> {
   );
   ensureDir(mainActivityDir);
   write(path.join(mainActivityDir, 'MainActivity.kt'), mainActivityTemplate(params));
+
+  console.log(chalk.cyan(' → Writing iOS entitlements...'));
+  const iosRunnerDir = path.join(appDir, 'ios', 'Runner');
+  if (fs.existsSync(iosRunnerDir)) {
+    write(path.join(iosRunnerDir, 'Runner.entitlements'), runnerEntitlementsTemplate());
+  }
 
   console.log(chalk.cyan(' → Creating design system theme...'));
 
@@ -302,6 +330,14 @@ export async function createApp(options: CreateAppOptions): Promise<void> {
     console.log(chalk.green('  build_runner build completed'));
   } catch {
     console.log(chalk.yellow('  build_runner build failed (you may need to run it manually)'));
+  }
+
+  console.log(chalk.cyan(' → Formatting code...'));
+  try {
+    execSync('dart format lib/', { cwd: appDir, stdio: 'pipe' });
+    console.log(chalk.green('  dart format completed'));
+  } catch {
+    console.log(chalk.yellow('  dart format failed (you may need to run it manually)'));
   }
 
   console.log(chalk.green(`\nApp "${appName}" created successfully!`));
