@@ -13,8 +13,15 @@ import { createPage } from './core/create-page.js';
 import { createPackage } from './core/create-package.js';
 import { createEndpoint } from './core/create-endpoint.js';
 import { createEnvVar, type EnvVarType } from './core/create-env-var.js';
+import { createCollaborativeFeature } from './core/collaborative/create-collaborative-feature.js';
+import { createCollaborativePage } from './core/collaborative/create-collaborative-page.js';
+import { createCollaborativeBloc } from './core/collaborative/create-collaborative-bloc.js';
+import { createCollaborativeEndpoint } from './core/collaborative/create-collaborative-endpoint.js';
+import { execSync } from 'child_process';
+import * as path from 'path';
 import { discoverCommands } from './core/docs-commands.js';
 import { discoverArchitecture } from './core/docs-architecture.js';
+import { discoverCollaborativeFeatures } from './core/project-analyzer.js';
 
 export async function runMcpServer() {
   const server = new Server(
@@ -192,6 +199,72 @@ export async function runMcpServer() {
             required: ['dir'],
           },
         },
+        {
+          name: 'list_collaborative_features',
+          description: 'List all existing collaborative features in the monorepo with their paths and names. Use this to discover available features before using create_collaborative_page, create_collaborative_bloc, or create_collaborative_endpoint.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              monorepoRoot: { type: 'string', description: 'Root directory of the monorepo' },
+            },
+            required: ['monorepoRoot'],
+          },
+        },
+        {
+          name: 'create_collaborative_feature',
+          description: 'Create a collaborative feature scaffold: directories, barrel files, DI modules, pubspec.yaml. After creating the scaffold, ask the user which elements they want to add (endpoint, bloc, page) before calling any additional tools. Do NOT automatically call create_collaborative_endpoint, create_collaborative_bloc, or create_collaborative_page.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              monorepoRoot: { type: 'string', description: 'Root directory of the monorepo' },
+              featureName: { type: 'string', description: 'Feature name in snake_case (e.g. feature_orders)' },
+              description: { type: 'string', description: 'Feature description' },
+            },
+            required: ['monorepoRoot', 'featureName'],
+          },
+        },
+        {
+          name: 'create_collaborative_page',
+          description: 'Add a page + view to an existing collaborative feature. Use list_collaborative_features first to get the featurePath.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              featurePath: { type: 'string', description: 'Absolute path to the collaborative feature package (use list_collaborative_features to get it)' },
+              pageName: { type: 'string', description: 'Page name in snake_case' },
+            },
+            required: ['featurePath', 'pageName'],
+          },
+        },
+        {
+          name: 'create_collaborative_bloc',
+          description: 'Add a BLoC to an existing collaborative feature. Use list_collaborative_features first to get the featurePath.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              featurePath: { type: 'string', description: 'Absolute path to the collaborative feature package (use list_collaborative_features to get it)' },
+              blocName: { type: 'string', description: 'BLoC name in snake_case' },
+            },
+            required: ['featurePath', 'blocName'],
+          },
+        },
+        {
+          name: 'create_collaborative_endpoint',
+          description: 'Generate endpoint stack (entity, model, datasource, repository, usecase, BFF API method) for a collaborative feature. Use list_collaborative_features first to get the featurePath.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              featurePath: { type: 'string', description: 'Absolute path to the collaborative feature package (use list_collaborative_features to get it)' },
+              httpMethod: {
+                type: 'string',
+                enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+                description: 'HTTP method',
+              },
+              endpointPath: { type: 'string', description: 'Endpoint path (e.g. /api/items/{id})' },
+              useCaseName: { type: 'string', description: 'UseCase name in snake_case' },
+            },
+            required: ['featurePath', 'httpMethod', 'endpointPath', 'useCaseName'],
+          },
+        },
       ],
     };
   });
@@ -285,6 +358,89 @@ export async function runMcpServer() {
         }
         return {
           content: [{ type: 'text', text: JSON.stringify(info, null, 2) }],
+        };
+      }
+
+      if (request.params.name === 'list_collaborative_features') {
+        const { monorepoRoot } = request.params.arguments as { monorepoRoot: string };
+        const features = discoverCollaborativeFeatures(monorepoRoot);
+        const result = features.map((f) => ({
+          name: f.projectName,
+          path: f.projectRoot,
+        }));
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      if (request.params.name === 'create_collaborative_feature') {
+        const args = request.params.arguments as any;
+        const monorepoRoot = args.monorepoRoot;
+        if (!monorepoRoot) {
+          return { content: [{ type: 'text', text: 'Error: monorepoRoot is required.' }], isError: true };
+        }
+        const { featureName, description } = args;
+
+        await createCollaborativeFeature({
+          monorepoRoot,
+          featureName,
+          description,
+          runBootstrap: false,
+        });
+
+        const featurePath = path.join(monorepoRoot, 'packages', 'collaborative', featureName);
+
+        return {
+          content: [{ type: 'text', text: `Collaborative feature scaffold ${featureName} created at ${featurePath}\n\nNEXT STEPS (execute these commands now via bash):\n1. cd ${monorepoRoot} && melos bootstrap\n\nScaffold ready. Ask the user which elements they want to add next (endpoint, bloc, page).` }],
+        };
+      }
+
+      if (request.params.name === 'create_collaborative_page') {
+        const args = request.params.arguments as any;
+        const featurePath = args.featurePath;
+        if (!featurePath) {
+          return { content: [{ type: 'text', text: 'Error: featurePath is required. Use list_collaborative_features to get it.' }], isError: true };
+        }
+        await createCollaborativePage({
+          featurePath,
+          pageName: args.pageName,
+        });
+        return {
+          content: [{ type: 'text', text: `Successfully created page ${args.pageName} in ${featurePath}` }],
+        };
+      }
+
+      if (request.params.name === 'create_collaborative_bloc') {
+        const args = request.params.arguments as any;
+        const featurePath = args.featurePath;
+        if (!featurePath) {
+          return { content: [{ type: 'text', text: 'Error: featurePath is required. Use list_collaborative_features to get it.' }], isError: true };
+        }
+        await createCollaborativeBloc({
+          featurePath,
+          blocName: args.blocName,
+        });
+        return {
+          content: [{ type: 'text', text: `Successfully created BLoC ${args.blocName} in ${featurePath}` }],
+        };
+      }
+
+      if (request.params.name === 'create_collaborative_endpoint') {
+        const args = request.params.arguments as any;
+        const featurePath = args.featurePath;
+        if (!featurePath) {
+          return { content: [{ type: 'text', text: 'Error: featurePath is required. Use list_collaborative_features to get it.' }], isError: true };
+        }
+        const featureName = path.basename(featurePath);
+        await createCollaborativeEndpoint({
+          featurePath,
+          featureName,
+          httpMethod: args.httpMethod,
+          endpointPath: args.endpointPath,
+          useCaseName: args.useCaseName,
+        });
+        return {
+          content: [{ type: 'text', text: `Successfully generated endpoint ${args.useCaseName} in ${featurePath}` }],
         };
       }
 

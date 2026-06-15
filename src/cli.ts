@@ -8,7 +8,7 @@ import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
 import { createPage } from './core/create-page.js';
 import { createPackage } from './core/create-package.js';
-import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow, pageFlow, packageFlow } from './interactive.js';
+import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow, pageFlow, packageFlow, collaborativeFlow } from './interactive.js';
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
 import { discoverArchitecture, displayArchitecture } from './core/docs-architecture.js';
@@ -160,6 +160,85 @@ program
   .action(async () => {
     await envVarFlow();
   });
+
+// Collaborative subcommand group
+const collabCmd = program
+  .command('collaborative')
+  .description('Generate collaborative feature structure (WL collaborative template)');
+
+collabCmd
+  .command('feature')
+  .description('Create a complete collaborative feature')
+  .argument('[name]', 'Feature name in snake_case (e.g. feature_orders)')
+  .action(async (name: string | undefined) => {
+    if (!name) {
+      await collaborativeFlow();
+      return;
+    }
+    const { findMonorepoRoot } = await import('./core/project-analyzer.js');
+    const monorepoRoot = findMonorepoRoot(process.cwd());
+    if (!monorepoRoot) {
+      console.error(chalk.red('Not inside a monorepo. Run from within a Melos monorepo.'));
+      process.exit(1);
+    }
+    try {
+      const { createCollaborativeFeature } = await import('./core/collaborative/create-collaborative-feature.js');
+      await createCollaborativeFeature({ monorepoRoot, featureName: name });
+    } catch (error) {
+      console.error(chalk.red(`Error: ${error}`));
+      process.exit(1);
+    }
+  });
+
+collabCmd
+  .command('page')
+  .description('Add a page + view to an existing collaborative feature')
+  .argument('[name]', 'Page name in snake_case')
+  .option('-f, --feature <path>', 'path to the collaborative feature package')
+  .action(async (name: string | undefined, options: { feature?: string }) => {
+    if (!name || !options.feature) {
+      await collaborativeFlow();
+      return;
+    }
+    try {
+      const { createCollaborativePage } = await import('./core/collaborative/create-collaborative-page.js');
+      await createCollaborativePage({ featurePath: options.feature, pageName: name });
+    } catch (error) {
+      console.error(chalk.red(`Error: ${error}`));
+      process.exit(1);
+    }
+  });
+
+collabCmd
+  .command('bloc')
+  .description('Add a BLoC to an existing collaborative feature')
+  .argument('[name]', 'BLoC name in snake_case')
+  .option('-f, --feature <path>', 'path to the collaborative feature package')
+  .action(async (name: string | undefined, options: { feature?: string }) => {
+    if (!name || !options.feature) {
+      await collaborativeFlow();
+      return;
+    }
+    try {
+      const { createCollaborativeBloc } = await import('./core/collaborative/create-collaborative-bloc.js');
+      await createCollaborativeBloc({ featurePath: options.feature, blocName: name });
+    } catch (error) {
+      console.error(chalk.red(`Error: ${error}`));
+      process.exit(1);
+    }
+  });
+
+collabCmd
+  .command('endpoint')
+  .description('Generate endpoint stack for a collaborative feature')
+  .action(async () => {
+    await collaborativeFlow();
+  });
+
+// Default action for `wlmaker collaborative` (no sub-command) -> interactive menu
+collabCmd.action(async () => {
+  await collaborativeFlow();
+});
 
 // Docs command group
 const docsCmd = program
