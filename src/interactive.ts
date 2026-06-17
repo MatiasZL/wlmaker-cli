@@ -114,7 +114,7 @@ async function blocFlow(project: ProjectInfo): Promise<void> {
   const name = await clack.text({
     message: 'BLoC name (snake_case)',
     placeholder: 'e.g. user_login',
-    validate: (value) => {
+    validate: (value = '') => {
       if (!value.trim()) return 'Name is required';
       if (!SNAKE_CASE_REGEX.test(value))
         return 'Must be snake_case (lowercase, digits, underscores)';
@@ -146,7 +146,7 @@ async function blocFlow(project: ProjectInfo): Promise<void> {
       const customPath = await clack.text({
         message: 'Target directory path',
         placeholder: 'lib/features/auth',
-        validate: (v) => {
+        validate: (v = '') => {
           if (!v.trim()) return 'Path is required';
         },
       });
@@ -171,7 +171,7 @@ async function blocFlow(project: ProjectInfo): Promise<void> {
     const customPath = await clack.text({
       message: 'Target directory path',
       placeholder: 'lib/features/auth',
-      validate: (v) => {
+      validate: (v = '') => {
         if (!v.trim()) return 'Path is required';
       },
     });
@@ -236,7 +236,7 @@ async function widgetFlow(): Promise<void> {
   const name = await clack.text({
     message: 'Widget name (snake_case, without wl_ prefix)',
     placeholder: 'e.g. toggle, badge, snackbar',
-    validate: (value) => {
+    validate: (value = '') => {
       if (!value.trim()) return 'Name is required';
       const clean = value.startsWith('wl_') ? value.slice(3) : value;
       if (!SNAKE_CASE_REGEX.test(clean))
@@ -349,7 +349,7 @@ async function useCaseFlow(): Promise<void> {
   const name = await clack.text({
     message: 'Widget name for use-case (snake_case, without wl_ prefix)',
     placeholder: 'e.g. toggle, badge',
-    validate: (value) => {
+    validate: (value = '') => {
       if (!value.trim()) return 'Name is required';
       const clean = value.startsWith('wl_') ? value.slice(3) : value;
       if (!SNAKE_CASE_REGEX.test(clean))
@@ -442,7 +442,7 @@ export async function pageFlow(
     (await clack.text({
       message: 'Page name (snake_case)',
       placeholder: 'e.g. profile, order_detail',
-      validate: (value) => {
+      validate: (value = '') => {
         if (!value.trim()) return 'Name is required';
         if (!SNAKE_CASE_REGEX.test(value))
           return 'Must be snake_case (lowercase, digits, underscores)';
@@ -484,7 +484,7 @@ export async function pageFlow(
           const customPath = await clack.text({
             message: 'Absolute path to pages directory',
             placeholder: '/path/to/packages/home/lib/pages',
-            validate: (v) => {
+            validate: (v = '') => {
               if (!v.trim()) return 'Path is required';
               const resolved = path.resolve(v.trim());
               if (!fs.existsSync(resolved)) return 'Path does not exist';
@@ -527,7 +527,7 @@ async function askManualPagesPath(): Promise<string | undefined> {
   const customPath = await clack.text({
     message: 'Absolute path to pages directory',
     placeholder: '/path/to/project/lib/pages',
-    validate: (v) => {
+    validate: (v = '') => {
       if (!v.trim()) return 'Path is required';
       const resolved = path.resolve(v.trim());
       if (!fs.existsSync(resolved)) return 'Path does not exist';
@@ -647,7 +647,7 @@ async function resolveEndpointProject(): Promise<ProjectInfo | null> {
   const manualPath = await clack.text({
     message: 'Enter the path to the package (must contain lib/data/api/bff/):',
     placeholder: 'e.g. /path/to/my-package or ./packages/core',
-    validate: (v) => {
+    validate: (v = '') => {
       if (!v.trim()) return 'Path is required';
       const resolved = path.resolve(v.trim());
       if (!fs.existsSync(resolved)) return 'Path does not exist';
@@ -698,7 +698,7 @@ export async function endpointFlow(): Promise<void> {
   const endpointPath = await clack.text({
     message: 'Endpoint path (e.g. /products/{id})',
     placeholder: '/api/users/{id}',
-    validate: (v) => { if (!v.trim()) return 'Path is required'; },
+    validate: (v) => { if (!(v ?? '').trim()) return 'Path is required'; },
   });
   if (clack.isCancel(endpointPath)) { clack.cancel('Cancelled'); return; }
 
@@ -734,7 +734,7 @@ export async function endpointFlow(): Promise<void> {
     message: 'UseCase name (snake_case)',
     placeholder: inferredName,
     initialValue: inferredName,
-    validate: (v) => {
+    validate: (v = '') => {
       if (!v.trim()) return 'Name is required';
       if (!SNAKE_CASE_REGEX.test(v)) return 'Must be snake_case';
     },
@@ -872,7 +872,7 @@ export async function docsInteractiveMode(): Promise<void> {
         const challenge = await clack.text({
           message: 'Pregunta de seguridad: Qué dice mechi cuando tiene una duda en el diseño?',
           placeholder: '...',
-          validate: (input) => {
+          validate: (input = '') => {
             const normalized = input.trim().toLowerCase().replace(/[áä]/g, 'a').replace(/[éë]/g, 'e').replace(/[íï]/g, 'i').replace(/[óö]/g, 'o').replace(/[úü]/g, 'u');
             const expected = 'deja le pregunto a cesita';
             if (normalized !== expected) {
@@ -959,7 +959,7 @@ export async function envVarFlow(): Promise<void> {
   const variableName = await clack.text({
     message: 'Variable name (SCREAMING_SNAKE_CASE)',
     placeholder: 'MY_FEATURE_FLAG',
-    validate: (v) => {
+    validate: (v = '') => {
       if (!v.trim()) return 'Name is required';
       if (!SCREAMING_SNAKE_REGEX.test(v)) return 'Must be SCREAMING_SNAKE_CASE (uppercase, numbers, underscores)';
     },
@@ -1286,7 +1286,7 @@ async function collaborativeEndpointFlow(monorepoRoot: string): Promise<void> {
   const endpointPath = await clack.text({
     message: 'Endpoint path (e.g. /items/{id})',
     placeholder: '/api/items/{id}',
-    validate: (v) => { if (!v.trim()) return 'Path is required'; },
+    validate: (v) => { if (!(v ?? '').trim()) return 'Path is required'; },
   });
   if (clack.isCancel(endpointPath)) { clack.cancel('Cancelled'); return; }
 
@@ -1304,7 +1304,7 @@ async function collaborativeEndpointFlow(monorepoRoot: string): Promise<void> {
     message: 'UseCase name (snake_case)',
     placeholder: inferredName,
     initialValue: inferredName,
-    validate: (v) => {
+    validate: (v = '') => {
       if (!v.trim()) return 'Name is required';
       if (!SNAKE_CASE_REGEX.test(v)) return 'Must be snake_case';
     },
