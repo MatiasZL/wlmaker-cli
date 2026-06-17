@@ -1,0 +1,5 @@
+allowBuilds:
+  esbuild: true
+  wlmaker: true
+overrides:
+  wlmaker: 'link:'

@@ -8,7 +8,7 @@ import { createWidget } from './core/create-widget.js';
 import { createUseCase } from './core/create-usecase.js';
 import { createPage } from './core/create-page.js';
 import { createPackage } from './core/create-package.js';
-import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow, pageFlow, packageFlow, collaborativeFlow } from './interactive.js';
+import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow, pageFlow, packageFlow, collaborativeFlow, appFlow } from './interactive.js';
 import { detectBookDir, serveBook } from './core/docs-serve.js';
 import { discoverCommands, displayCommands } from './core/docs-commands.js';
 import { discoverArchitecture, displayArchitecture } from './core/docs-architecture.js';
@@ -159,6 +159,14 @@ program
   .description('Add an environment variable across the Flutter monorepo')
   .action(async () => {
     await envVarFlow();
+  });
+
+// App subcommand
+program
+  .command('app')
+  .description('Create and manage apps in the monorepo')
+  .action(async () => {
+    await appFlow();
   });
 
 // Collaborative subcommand group
