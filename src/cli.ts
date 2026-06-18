@@ -3,15 +3,23 @@ import * as path from 'path';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import * as clack from '@clack/prompts';
-import { createBloc } from './core/create-bloc.js';
-import { createWidget } from './core/create-widget.js';
-import { createUseCase } from './core/create-usecase.js';
-import { createPage } from './core/create-page.js';
-import { createPackage } from './core/create-package.js';
-import { interactiveMode, resolveProject, endpointFlow, docsInteractiveMode, envVarFlow, pageFlow, packageFlow, collaborativeFlow, appFlow } from './interactive.js';
-import { detectBookDir, serveBook } from './core/docs-serve.js';
-import { discoverCommands, displayCommands } from './core/docs-commands.js';
-import { discoverArchitecture, displayArchitecture } from './core/docs-architecture.js';
+import { createBloc } from './generators/bloc/generator.js';
+import { createWidget } from './generators/widget/generator.js';
+import { createUseCase } from './generators/widget/usecase-generator.js';
+import { createPage } from './generators/page/generator.js';
+import { createPackage } from './generators/package/generator.js';
+import { interactiveMode } from './flows/main-menu.js';
+import { resolveProject } from './flows/project-resolver.js';
+import { endpointFlow } from './flows/endpoint-flow.js';
+import { docsInteractiveMode } from './flows/docs-flow.js';
+import { envVarFlow } from './flows/env-var-flow.js';
+import { pageFlow } from './flows/page-flow.js';
+import { packageFlow } from './flows/package-flow.js';
+import { collaborativeFlow } from './flows/collab-flow.js';
+import { appFlow } from './flows/app-flow.js';
+import { detectBookDir, serveBook } from './docs/serve.js';
+import { discoverCommands, displayCommands } from './docs/commands.js';
+import { discoverArchitecture, displayArchitecture } from './docs/architecture.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
@@ -181,14 +189,14 @@ collabCmd
       await collaborativeFlow();
       return;
     }
-    const { findMonorepoRoot } = await import('./core/project-analyzer.js');
+    const { findMonorepoRoot } = await import('./analyzer/project.js');
     const monorepoRoot = findMonorepoRoot(process.cwd());
     if (!monorepoRoot) {
       console.error(chalk.red('Not inside a monorepo. Run from within a Melos monorepo.'));
       process.exit(1);
     }
     try {
-      const { createCollaborativeFeature } = await import('./core/collaborative/create-collaborative-feature.js');
+      const { createCollaborativeFeature } = await import('./generators/collaborative/feature/generator.js');
       await createCollaborativeFeature({ monorepoRoot, featureName: name });
     } catch (error) {
       console.error(chalk.red(`Error: ${error}`));
@@ -207,7 +215,7 @@ collabCmd
       return;
     }
     try {
-      const { createCollaborativePage } = await import('./core/collaborative/create-collaborative-page.js');
+      const { createCollaborativePage } = await import('./generators/collaborative/page/generator.js');
       await createCollaborativePage({ featurePath: options.feature, pageName: name });
     } catch (error) {
       console.error(chalk.red(`Error: ${error}`));
@@ -226,7 +234,7 @@ collabCmd
       return;
     }
     try {
-      const { createCollaborativeBloc } = await import('./core/collaborative/create-collaborative-bloc.js');
+      const { createCollaborativeBloc } = await import('./generators/collaborative/bloc/generator.js');
       await createCollaborativeBloc({ featurePath: options.feature, blocName: name });
     } catch (error) {
       console.error(chalk.red(`Error: ${error}`));

@@ -15,5 +15,8 @@ export default defineConfig({
   },
   define: {
     'process.env.WL_DOCS_URL': JSON.stringify(process.env.WL_DOCS_URL ?? ''),
+    'process.env.WL_DOCS_REMOTE_ANSWER': JSON.stringify(
+      process.env.WL_DOCS_REMOTE_ANSWER ?? '',
+    ),
   },
 });
