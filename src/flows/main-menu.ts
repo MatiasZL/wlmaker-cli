@@ -10,6 +10,7 @@ import { envVarFlow } from './env-var-flow.js';
 import { appFlow } from './app-flow.js';
 import { collaborativeFlow } from './collab-flow.js';
 import { docsInteractiveMode } from './docs-flow.js';
+import { personalInformationFlow } from './personal-information-flow.js';
 
 export async function interactiveMode(): Promise<void> {
   clack.intro(chalk.bgCyan(chalk.black(' wlmaker ')));
@@ -25,6 +26,7 @@ export async function interactiveMode(): Promise<void> {
       { value: 'endpoint', label: 'Endpoint', hint: 'BFF Clean Architecture stack' },
       { value: 'package', label: 'Package', hint: 'Create a new package in the monorepo' },
       { value: 'env-var', label: 'Env Var', hint: 'Add environment variable to monorepo stack' },
+      { value: 'personal-information', label: 'Personal Information', hint: 'Scaffold a new PI market (country form)' },
       { value: 'collaborative', label: 'Collaborative', hint: 'Generate collaborative feature / page / bloc / endpoint' },
       { value: 'docs', label: 'Docs', hint: 'Project documentation tools' },
     ],
@@ -61,6 +63,9 @@ export async function interactiveMode(): Promise<void> {
       break;
     case 'env-var':
       await envVarFlow();
+      break;
+    case 'personal-information':
+      await personalInformationFlow();
       break;
     case 'collaborative':
       await collaborativeFlow();
